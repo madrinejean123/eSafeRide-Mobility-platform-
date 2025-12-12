@@ -8,12 +8,50 @@ class RegisterPage extends StatefulWidget {
   State<RegisterPage> createState() => _RegisterPageState();
 }
 
-class _RegisterPageState extends State<RegisterPage> {
+class _RegisterPageState extends State<RegisterPage>
+    with TickerProviderStateMixin {
   bool _isObscurePassword = true;
   bool _isObscureConfirm = true;
 
+  late AnimationController _logoController;
+  late Animation<double> _logoScale;
+  late AnimationController _buttonGradientController;
+
+  @override
+  void initState() {
+    super.initState();
+
+    // Logo animation
+    _logoController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1200),
+    )..forward();
+
+    _logoScale = Tween<double>(begin: 0.8, end: 1.0).animate(
+      CurvedAnimation(parent: _logoController, curve: Curves.easeOutBack),
+    );
+
+    // Button gradient animation
+    _buttonGradientController = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 3),
+    )..repeat(reverse: true);
+  }
+
+  @override
+  void dispose() {
+    _logoController.dispose();
+    _buttonGradientController.dispose();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
+    final Color primaryBlue = const Color(0xFF3E71DF);
+    final Color primaryTeal = const Color(0xFF00BFA5);
+    final Color accentOrange = const Color(0xFFFFA726);
+    final Color accentPink = const Color(0xFFFFB6C1);
+
     return Scaffold(
       body: Stack(
         children: [
@@ -21,28 +59,26 @@ class _RegisterPageState extends State<RegisterPage> {
           Container(
             decoration: const BoxDecoration(
               gradient: LinearGradient(
-                colors: [Color(0xFF0D1B2A), Color(0xFF1B263B)],
+                colors: [Color(0xFF143A44), Color(0xFF026D5F)],
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
               ),
             ),
           ),
 
-          // Subtle background illustration
-          Positioned(
-            top: 50,
-            right: -30,
-            child: Opacity(
-              opacity: 0.05,
-              child: Icon(
-                Icons.directions_car_filled,
-                size: 250,
-                color: Colors.white,
-              ),
-            ),
+          // Decorative circles at top
+          _buildAnimatedCircle(-50, 60, 0.05, Colors.white, 20),
+          _buildAnimatedCircle(100, 120, 0.04, Colors.white, 40),
+          _buildAnimatedCircle(200, -40, 0.03, accentPink.withOpacity(0.2), 30),
+          _buildAnimatedCircle(
+            -80,
+            200,
+            0.04,
+            primaryBlue.withOpacity(0.2),
+            60,
           ),
 
-          // White curved container
+          // Main curved container
           Align(
             alignment: Alignment.bottomCenter,
             child: ClipRRect(
@@ -61,14 +97,17 @@ class _RegisterPageState extends State<RegisterPage> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      // Logo for disabled students
-                      Image.network(
-                        'https://i.pinimg.com/originals/32/27/11/322711129569656440.png', // Replace with direct image link
-                        height: 80,
+                      // Logo
+                      ScaleTransition(
+                        scale: _logoScale,
+                        child: Image.asset(
+                          'assets/images/logo.png',
+                          height: 80,
+                        ),
                       ),
                       const SizedBox(height: 16),
 
-                      // Subtitle / touching message
+                      // Subtitle
                       const Text(
                         'Empowering mobility for every student',
                         style: TextStyle(
@@ -86,171 +125,146 @@ class _RegisterPageState extends State<RegisterPage> {
                         style: TextStyle(
                           fontSize: 28,
                           fontWeight: FontWeight.bold,
-                          color: Colors.blue.shade900,
+                          color: primaryBlue,
                         ),
                         textAlign: TextAlign.center,
                       ),
                       const SizedBox(height: 24),
 
                       // Username Field
-                      TextField(
-                        decoration: InputDecoration(
-                          labelText: 'Username',
-                          prefixIcon: const Icon(
-                            Icons.person,
-                            color: Colors.blue,
-                          ),
-                          filled: true,
-                          fillColor: Colors.blue.shade50,
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(16),
-                            borderSide: BorderSide.none,
-                          ),
-                        ),
-                        style: const TextStyle(color: Colors.black87),
-                      ),
+                      _buildInputField('Username', Icons.person, primaryBlue),
                       const SizedBox(height: 16),
 
                       // Email Field
-                      TextField(
+                      _buildInputField(
+                        'Email',
+                        Icons.email,
+                        primaryBlue,
                         keyboardType: TextInputType.emailAddress,
-                        decoration: InputDecoration(
-                          labelText: 'Email',
-                          prefixIcon: const Icon(
-                            Icons.email,
-                            color: Colors.blue,
-                          ),
-                          filled: true,
-                          fillColor: Colors.blue.shade50,
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(16),
-                            borderSide: BorderSide.none,
-                          ),
-                        ),
-                        style: const TextStyle(color: Colors.black87),
                       ),
                       const SizedBox(height: 16),
 
                       // Password Field
-                      TextField(
+                      _buildInputField(
+                        'Password',
+                        Icons.lock,
+                        primaryBlue,
                         obscureText: _isObscurePassword,
-                        decoration: InputDecoration(
-                          labelText: 'Password',
-                          prefixIcon: const Icon(
-                            Icons.lock,
-                            color: Colors.blue,
+                        suffixIcon: IconButton(
+                          icon: Icon(
+                            _isObscurePassword
+                                ? Icons.visibility
+                                : Icons.visibility_off,
+                            color: primaryBlue,
                           ),
-                          suffixIcon: IconButton(
-                            icon: Icon(
-                              _isObscurePassword
-                                  ? Icons.visibility
-                                  : Icons.visibility_off,
-                            ),
-                            onPressed: () {
-                              setState(() {
-                                _isObscurePassword = !_isObscurePassword;
-                              });
-                            },
-                          ),
-                          filled: true,
-                          fillColor: Colors.blue.shade50,
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(16),
-                            borderSide: BorderSide.none,
-                          ),
+                          onPressed: () {
+                            setState(() {
+                              _isObscurePassword = !_isObscurePassword;
+                            });
+                          },
                         ),
-                        style: const TextStyle(color: Colors.black87),
                       ),
                       const SizedBox(height: 16),
 
                       // Confirm Password Field
-                      TextField(
+                      _buildInputField(
+                        'Confirm Password',
+                        Icons.lock_outline,
+                        primaryBlue,
                         obscureText: _isObscureConfirm,
-                        decoration: InputDecoration(
-                          labelText: 'Confirm Password',
-                          prefixIcon: const Icon(
-                            Icons.lock_outline,
-                            color: Colors.blue,
+                        suffixIcon: IconButton(
+                          icon: Icon(
+                            _isObscureConfirm
+                                ? Icons.visibility
+                                : Icons.visibility_off,
+                            color: primaryBlue,
                           ),
-                          suffixIcon: IconButton(
-                            icon: Icon(
-                              _isObscureConfirm
-                                  ? Icons.visibility
-                                  : Icons.visibility_off,
-                            ),
-                            onPressed: () {
-                              setState(() {
-                                _isObscureConfirm = !_isObscureConfirm;
-                              });
-                            },
-                          ),
-                          filled: true,
-                          fillColor: Colors.blue.shade50,
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(16),
-                            borderSide: BorderSide.none,
-                          ),
+                          onPressed: () {
+                            setState(() {
+                              _isObscureConfirm = !_isObscureConfirm;
+                            });
+                          },
                         ),
-                        style: const TextStyle(color: Colors.black87),
                       ),
                       const SizedBox(height: 24),
 
-                      // Gradient Register Button
-                      Container(
-                        height: 56,
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(16),
-                          gradient: LinearGradient(
-                            colors: [
-                              Colors.blue.shade800,
-                              Colors.blue.shade400,
-                            ],
-                          ),
-                        ),
-                        child: ElevatedButton(
-                          onPressed: () {
-                            Navigator.pushReplacementNamed(
-                              context,
-                              AppRoutes.studentDashboard,
-                            );
-                          },
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.transparent,
-                            shadowColor: Colors.transparent,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(16),
+                      // Animated gradient Register button
+                      AnimatedBuilder(
+                        animation: _buttonGradientController,
+                        builder: (context, child) {
+                          return Container(
+                            height: 60,
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(20),
+                              gradient: LinearGradient(
+                                colors: [
+                                  Color.lerp(
+                                    primaryBlue,
+                                    primaryTeal,
+                                    _buttonGradientController.value,
+                                  )!,
+                                  Color.lerp(
+                                    primaryTeal,
+                                    accentOrange,
+                                    _buttonGradientController.value,
+                                  )!,
+                                  Color.lerp(
+                                    accentOrange,
+                                    accentPink,
+                                    _buttonGradientController.value,
+                                  )!,
+                                ],
+                              ),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: primaryBlue.withOpacity(0.3),
+                                  blurRadius: 8,
+                                  offset: const Offset(0, 4),
+                                ),
+                              ],
                             ),
-                          ),
-                          child: const Text(
-                            'Register',
-                            style: TextStyle(
-                              fontSize: 20,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.white,
+                            child: ElevatedButton(
+                              onPressed: () {
+                                Navigator.pushReplacementNamed(
+                                  context,
+                                  AppRoutes.studentDashboard,
+                                );
+                              },
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.transparent,
+                                shadowColor: Colors.transparent,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(20),
+                                ),
+                              ),
+                              child: const Text(
+                                'Register',
+                                style: TextStyle(
+                                  fontSize: 20,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.white,
+                                ),
+                              ),
                             ),
-                          ),
-                        ),
+                          );
+                        },
                       ),
                       const SizedBox(height: 16),
 
-                      // Social login buttons using network images
+                      // Social login row with equal size icons
                       Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          IconButton(
-                            icon: Image.network(
-                              'https://i.pinimg.com/originals/69/81/28/698128379777552997.png', // Google
-                            ),
-                            iconSize: 40,
-                            onPressed: () {},
+                          _buildSocialButton(
+                            'assets/images/google.png',
+                            primaryBlue,
+                            primaryTeal,
                           ),
                           const SizedBox(width: 16),
-                          IconButton(
-                            icon: Image.network(
-                              'https://i.pinimg.com/originals/29/48/45/29484572557440101.png', // Facebook
-                            ),
-                            iconSize: 40,
-                            onPressed: () {},
+                          _buildSocialButton(
+                            'assets/images/facebook.png',
+                            primaryBlue,
+                            primaryTeal,
                           ),
                         ],
                       ),
@@ -261,10 +275,10 @@ class _RegisterPageState extends State<RegisterPage> {
                         onTap: () {
                           Navigator.pushNamed(context, AppRoutes.login);
                         },
-                        child: const Text(
+                        child: Text(
                           "Already have an account? Login",
                           style: TextStyle(
-                            color: Colors.blueAccent,
+                            color: primaryBlue,
                             decoration: TextDecoration.underline,
                             fontWeight: FontWeight.w500,
                           ),
@@ -279,6 +293,90 @@ class _RegisterPageState extends State<RegisterPage> {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  // Helper for input fields
+  Widget _buildInputField(
+    String label,
+    IconData icon,
+    Color borderColor, {
+    bool obscureText = false,
+    Widget? suffixIcon,
+    TextInputType? keyboardType,
+  }) {
+    return TextField(
+      keyboardType: keyboardType,
+      obscureText: obscureText,
+      decoration: InputDecoration(
+        labelText: label,
+        prefixIcon: Icon(icon, color: borderColor),
+        suffixIcon: suffixIcon,
+        filled: true,
+        fillColor: const Color(0xFFE0F7F4),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(16),
+          borderSide: BorderSide.none,
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(16),
+          borderSide: BorderSide(color: borderColor, width: 2),
+        ),
+      ),
+      style: const TextStyle(color: Colors.black87),
+    );
+  }
+
+  // Helper for social buttons
+  Widget _buildSocialButton(String asset, Color start, Color end) {
+    return Container(
+      width: 48,
+      height: 48,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        gradient: LinearGradient(colors: [start, end]),
+        boxShadow: [
+          BoxShadow(
+            color: start.withOpacity(0.2),
+            blurRadius: 6,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
+      child: Center(
+        child: Image.asset(asset, width: 24, height: 24, fit: BoxFit.contain),
+      ),
+    );
+  }
+
+  // Animated top circles
+  Widget _buildAnimatedCircle(
+    double top,
+    double left,
+    double opacity,
+    Color color,
+    double size,
+  ) {
+    return Positioned(
+      top: top,
+      left: left,
+      child: AnimatedBuilder(
+        animation: _buttonGradientController,
+        builder: (context, child) {
+          return Transform.translate(
+            offset: Offset(0, 8 * (_buttonGradientController.value - 0.5)),
+            child: child,
+          );
+        },
+        child: Container(
+          width: size,
+          height: size,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: color.withOpacity(opacity),
+          ),
+        ),
       ),
     );
   }

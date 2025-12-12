@@ -1,5 +1,5 @@
+import 'dart:math';
 import 'package:flutter/material.dart';
-import 'dart:async';
 import 'package:esaferide/config/routes.dart';
 
 class SplashScreen extends StatefulWidget {
@@ -11,187 +11,152 @@ class SplashScreen extends StatefulWidget {
 
 class _SplashScreenState extends State<SplashScreen>
     with TickerProviderStateMixin {
-  late AnimationController _logoController;
-  late AnimationController _fadeController;
-  late AnimationController _vehicleController;
+  late AnimationController _particleController;
+  late AnimationController _gradientController;
 
-  late Animation<double> _logoAnimation;
-  late Animation<double> _fadeAnimation;
-  late Animation<double> _vehicleAnimation;
+  bool _isLoading = false; // Loading indicator toggle
 
   @override
   void initState() {
     super.initState();
 
-    // Logo bounce/scale
-    _logoController = AnimationController(
-      duration: const Duration(seconds: 2),
+    // Particle animation
+    _particleController = AnimationController(
       vsync: this,
+      duration: const Duration(seconds: 12),
+    )..repeat();
+
+    // Gradient animation (not used for background anymore)
+    _gradientController = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 5),
     )..repeat(reverse: true);
-
-    _logoAnimation = Tween<double>(begin: 0.9, end: 1.1).animate(
-      CurvedAnimation(parent: _logoController, curve: Curves.easeInOut),
-    );
-
-    // Fade-in for title/subtitle
-    _fadeController = AnimationController(
-      duration: const Duration(seconds: 2),
-      vsync: this,
-    );
-    _fadeAnimation = Tween<double>(
-      begin: 0.0,
-      end: 1.0,
-    ).animate(CurvedAnimation(parent: _fadeController, curve: Curves.easeIn));
-    _fadeController.forward();
-
-    // Vehicle/wheel moving animation
-    _vehicleController = AnimationController(
-      duration: const Duration(seconds: 2),
-      vsync: this,
-    )..repeat(reverse: false);
-    _vehicleAnimation = Tween<double>(begin: -50.0, end: 50.0).animate(
-      CurvedAnimation(parent: _vehicleController, curve: Curves.easeInOut),
-    );
-
-    // Navigate to login after 3 seconds
-    Timer(const Duration(seconds: 3), () {
-      Navigator.of(context).pushReplacementNamed(AppRoutes.login);
-    });
   }
 
   @override
   void dispose() {
-    _logoController.dispose();
-    _fadeController.dispose();
-    _vehicleController.dispose();
+    _particleController.dispose();
+    _gradientController.dispose();
     super.dispose();
+  }
+
+  void _onGetStarted() async {
+    setState(() {
+      _isLoading = true;
+    });
+
+    // Simulate a short loading period
+    await Future.delayed(const Duration(seconds: 2));
+
+    Navigator.of(context).pushReplacementNamed(AppRoutes.login);
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      body: AnimatedContainer(
-        duration: const Duration(seconds: 5),
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            colors: [
-              const Color(0xFF1B263B), // darker navy
-              const Color(0xFF3B82F6), // lively blue
-            ],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ),
-        ),
-        child: Stack(
-          children: [
-            // Soft background circles
-            Positioned(
-              top: 80,
-              left: -50,
-              child: Container(
-                width: 180,
-                height: 180,
-                decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.05),
-                  borderRadius: BorderRadius.circular(90),
-                ),
-              ),
-            ),
-            Positioned(
-              bottom: 100,
-              right: -40,
-              child: Container(
-                width: 200,
-                height: 200,
-                decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.05),
-                  borderRadius: BorderRadius.circular(100),
-                ),
-              ),
-            ),
+    final screenWidth = MediaQuery.of(context).size.width;
+    final screenHeight = MediaQuery.of(context).size.height;
 
-            // Main content
-            Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  // Animated logo
-                  ScaleTransition(
-                    scale: _logoAnimation,
-                    child: Container(
-                      width: 120,
-                      height: 120,
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(24),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withOpacity(0.25),
-                            blurRadius: 20,
-                            offset: const Offset(0, 10),
+    return AnimatedBuilder(
+      animation: Listenable.merge([_particleController, _gradientController]),
+      builder: (context, child) {
+        return Scaffold(
+          body: Stack(
+            children: [
+              // Fullscreen background image
+              Positioned.fill(
+                child: Image.asset(
+                  'assets/images/safelogo.png',
+                  fit: BoxFit.cover,
+                ),
+              ),
+
+              // Floating particles
+              ...List.generate(20, (i) {
+                final progress = (_particleController.value + i / 20) % 1;
+                final size = 5 + (sin(i * 30) + 1) * 5;
+                return Positioned(
+                  top: progress * screenHeight,
+                  left: (sin(progress * 6.28 + i) * 80) + screenWidth / 2,
+                  child: Container(
+                    width: size,
+                    height: size,
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.08),
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                );
+              }),
+
+              // Floating shuttle & SafeBorder markers
+              ...List.generate(6, (i) {
+                final progress = (_particleController.value + i / 6) % 1;
+                final iconSize = 20.0 + (i % 2) * 10;
+                return Positioned(
+                  top: progress * screenHeight,
+                  left: (cos(progress * 6.28 + i) * 120) + screenWidth / 2,
+                  child: Icon(
+                    i % 2 == 0
+                        ? Icons.directions_bus_filled
+                        : Icons.location_on,
+                    size: iconSize,
+                    color: Colors.white.withOpacity(0.2),
+                  ),
+                );
+              }),
+
+              // Get Started button at bottom
+              Positioned(
+                bottom: screenHeight * 0.08,
+                left: screenWidth * 0.2,
+                right: screenWidth * 0.2,
+                child: GestureDetector(
+                  onTap: _isLoading ? null : _onGetStarted,
+                  child: Container(
+                    height: 56,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(16),
+                      gradient: const LinearGradient(
+                        colors: [Color(0xFF2563EB), Color(0xFFFDE047)],
+                      ),
+                    ),
+                    alignment: Alignment.center,
+                    child: _isLoading
+                        ? SizedBox(
+                            width: 60,
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                              children: List.generate(3, (index) {
+                                return AnimatedContainer(
+                                  duration: const Duration(milliseconds: 300),
+                                  width: 10,
+                                  height: 10,
+                                  decoration: BoxDecoration(
+                                    color: Colors.white,
+                                    shape: BoxShape.circle,
+                                  ),
+                                  margin: const EdgeInsets.symmetric(
+                                    horizontal: 2,
+                                  ),
+                                );
+                              }),
+                            ),
+                          )
+                        : const Text(
+                            'Get Started',
+                            style: TextStyle(
+                              fontSize: 20,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.white,
+                            ),
                           ),
-                        ],
-                      ),
-                      child: Center(
-                        child: Image.network(
-                          'https://i.pinimg.com/originals/32/27/11/322711129569656440.png',
-                          width: 80,
-                          height: 80,
-                        ),
-                      ),
-                    ),
                   ),
-                  const SizedBox(height: 24),
-
-                  // App title
-                  FadeTransition(
-                    opacity: _fadeAnimation,
-                    child: const Text(
-                      'eSafeRide',
-                      style: TextStyle(
-                        fontSize: 48,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.white,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-
-                  // Subtitle
-                  FadeTransition(
-                    opacity: _fadeAnimation,
-                    child: const Text(
-                      'Reliable mobility for all students',
-                      style: TextStyle(
-                        fontSize: 18,
-                        color: Colors.white70,
-                        fontWeight: FontWeight.w400,
-                      ),
-                      textAlign: TextAlign.center,
-                    ),
-                  ),
-                  const SizedBox(height: 40),
-
-                  // Vehicle/wheel animation for loading
-                  AnimatedBuilder(
-                    animation: _vehicleController,
-                    builder: (context, child) {
-                      return Transform.translate(
-                        offset: Offset(_vehicleAnimation.value, 0),
-                        child: Icon(
-                          Icons.directions_bus_rounded,
-                          size: 32,
-                          color: Colors.white,
-                        ),
-                      );
-                    },
-                  ),
-                ],
+                ),
               ),
-            ),
-          ],
-        ),
-      ),
+            ],
+          ),
+        );
+      },
     );
   }
 }
