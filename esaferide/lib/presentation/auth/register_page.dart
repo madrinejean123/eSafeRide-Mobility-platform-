@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:esaferide/config/routes.dart';
+import 'dart:math';
 
 class RegisterPage extends StatefulWidget {
   const RegisterPage({super.key});
@@ -12,10 +13,13 @@ class _RegisterPageState extends State<RegisterPage>
     with TickerProviderStateMixin {
   bool _isObscurePassword = true;
   bool _isObscureConfirm = true;
+  bool _isRegistering = false; // For 3-ball loader
+  String? _selectedRole; // Student or Driver
 
   late AnimationController _logoController;
   late Animation<double> _logoScale;
   late AnimationController _buttonGradientController;
+  late AnimationController _loadingController; // Loader controller
 
   @override
   void initState() {
@@ -36,13 +40,47 @@ class _RegisterPageState extends State<RegisterPage>
       vsync: this,
       duration: const Duration(seconds: 3),
     )..repeat(reverse: true);
+
+    // 3-ball loader controller
+    _loadingController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 900),
+    )..repeat();
   }
 
   @override
   void dispose() {
     _logoController.dispose();
     _buttonGradientController.dispose();
+    _loadingController.dispose();
     super.dispose();
+  }
+
+  void _onRegisterPressed() async {
+    if (_selectedRole == null) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Please select a role')));
+      return;
+    }
+
+    setState(() {
+      _isRegistering = true;
+    });
+
+    // Simulate registration delay (replace with Firebase logic)
+    await Future.delayed(const Duration(seconds: 2));
+
+    setState(() {
+      _isRegistering = false;
+    });
+
+    // Navigate to dashboard depending on role
+    if (_selectedRole == 'Student') {
+      Navigator.pushReplacementNamed(context, AppRoutes.studentDashboard);
+    } else {
+      Navigator.pushReplacementNamed(context, AppRoutes.driverDashboard);
+    }
   }
 
   @override
@@ -66,7 +104,7 @@ class _RegisterPageState extends State<RegisterPage>
             ),
           ),
 
-          // Decorative circles at top
+          // Top decorative circles
           _buildAnimatedCircle(-50, 60, 0.05, Colors.white, 20),
           _buildAnimatedCircle(100, 120, 0.04, Colors.white, 40),
           _buildAnimatedCircle(200, -40, 0.03, accentPink.withOpacity(0.2), 30),
@@ -131,11 +169,9 @@ class _RegisterPageState extends State<RegisterPage>
                       ),
                       const SizedBox(height: 24),
 
-                      // Username Field
+                      // Input fields
                       _buildInputField('Username', Icons.person, primaryBlue),
                       const SizedBox(height: 16),
-
-                      // Email Field
                       _buildInputField(
                         'Email',
                         Icons.email,
@@ -143,8 +179,6 @@ class _RegisterPageState extends State<RegisterPage>
                         keyboardType: TextInputType.emailAddress,
                       ),
                       const SizedBox(height: 16),
-
-                      // Password Field
                       _buildInputField(
                         'Password',
                         Icons.lock,
@@ -165,8 +199,6 @@ class _RegisterPageState extends State<RegisterPage>
                         ),
                       ),
                       const SizedBox(height: 16),
-
-                      // Confirm Password Field
                       _buildInputField(
                         'Confirm Password',
                         Icons.lock_outline,
@@ -188,7 +220,53 @@ class _RegisterPageState extends State<RegisterPage>
                       ),
                       const SizedBox(height: 24),
 
-                      // Animated gradient Register button
+                      // Role selection
+                      Text(
+                        'Select Role',
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 16,
+                          color: primaryBlue,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                        children: ['Student', 'Driver'].map((role) {
+                          final isSelected = _selectedRole == role;
+                          return GestureDetector(
+                            onTap: () {
+                              setState(() {
+                                _selectedRole = role;
+                              });
+                            },
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                vertical: 12,
+                                horizontal: 24,
+                              ),
+                              decoration: BoxDecoration(
+                                color: isSelected ? primaryBlue : Colors.white,
+                                border: Border.all(color: primaryBlue),
+                                borderRadius: BorderRadius.circular(20),
+                              ),
+                              child: Text(
+                                role,
+                                style: TextStyle(
+                                  color: isSelected
+                                      ? Colors.white
+                                      : primaryBlue,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 16,
+                                ),
+                              ),
+                            ),
+                          );
+                        }).toList(),
+                      ),
+                      const SizedBox(height: 24),
+
+                      // Register button with 3-ball loader
                       AnimatedBuilder(
                         animation: _buttonGradientController,
                         builder: (context, child) {
@@ -224,12 +302,9 @@ class _RegisterPageState extends State<RegisterPage>
                               ],
                             ),
                             child: ElevatedButton(
-                              onPressed: () {
-                                Navigator.pushReplacementNamed(
-                                  context,
-                                  AppRoutes.studentDashboard,
-                                );
-                              },
+                              onPressed: _isRegistering
+                                  ? null
+                                  : _onRegisterPressed,
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: Colors.transparent,
                                 shadowColor: Colors.transparent,
@@ -237,21 +312,23 @@ class _RegisterPageState extends State<RegisterPage>
                                   borderRadius: BorderRadius.circular(20),
                                 ),
                               ),
-                              child: const Text(
-                                'Register',
-                                style: TextStyle(
-                                  fontSize: 20,
-                                  fontWeight: FontWeight.bold,
-                                  color: Colors.white,
-                                ),
-                              ),
+                              child: _isRegistering
+                                  ? _LoadingDots(controller: _loadingController)
+                                  : const Text(
+                                      'Register',
+                                      style: TextStyle(
+                                        fontSize: 20,
+                                        fontWeight: FontWeight.bold,
+                                        color: Colors.white,
+                                      ),
+                                    ),
                             ),
                           );
                         },
                       ),
                       const SizedBox(height: 16),
 
-                      // Social login row with equal size icons
+                      // Social login
                       Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
@@ -270,7 +347,7 @@ class _RegisterPageState extends State<RegisterPage>
                       ),
                       const SizedBox(height: 16),
 
-                      // Already have an account?
+                      // Already have account
                       GestureDetector(
                         onTap: () {
                           Navigator.pushNamed(context, AppRoutes.login);
@@ -297,7 +374,7 @@ class _RegisterPageState extends State<RegisterPage>
     );
   }
 
-  // Helper for input fields
+  // Input field helper
   Widget _buildInputField(
     String label,
     IconData icon,
@@ -328,7 +405,7 @@ class _RegisterPageState extends State<RegisterPage>
     );
   }
 
-  // Helper for social buttons
+  // Social button helper
   Widget _buildSocialButton(String asset, Color start, Color end) {
     return Container(
       width: 48,
@@ -378,6 +455,37 @@ class _RegisterPageState extends State<RegisterPage>
           ),
         ),
       ),
+    );
+  }
+}
+
+/// THREE BALL LOADING ANIMATION
+class _LoadingDots extends StatelessWidget {
+  final AnimationController controller;
+  const _LoadingDots({required this.controller});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: List.generate(3, (i) {
+        return AnimatedBuilder(
+          animation: controller,
+          builder: (_, __) {
+            final value = sin((controller.value * 2 * pi) + (i * 1.3));
+            return Container(
+              margin: const EdgeInsets.symmetric(horizontal: 6),
+              transform: Matrix4.translationValues(0, -value * 8, 0),
+              width: 12,
+              height: 12,
+              decoration: const BoxDecoration(
+                color: Colors.white,
+                shape: BoxShape.circle,
+              ),
+            );
+          },
+        );
+      }),
     );
   }
 }

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:esaferide/config/routes.dart';
+import 'dart:math';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -10,6 +11,7 @@ class LoginPage extends StatefulWidget {
 
 class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
   bool _isObscurePassword = true;
+  bool _isLoggingIn = false; // Toggle for showing 3-ball loader
 
   late AnimationController _titleController;
   late Animation<Offset> _titleSlide;
@@ -18,6 +20,8 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
   late Animation<double> _logoScale;
 
   late AnimationController _buttonGradientController;
+
+  late AnimationController _loadingController; // Controller for 3-ball loader
 
   @override
   void initState() {
@@ -47,6 +51,12 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
       vsync: this,
       duration: const Duration(seconds: 3),
     )..repeat(reverse: true);
+
+    // 3-ball loader controller
+    _loadingController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 900),
+    )..repeat();
   }
 
   @override
@@ -54,7 +64,23 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
     _titleController.dispose();
     _logoController.dispose();
     _buttonGradientController.dispose();
+    _loadingController.dispose();
     super.dispose();
+  }
+
+  void _onLoginPressed() async {
+    setState(() {
+      _isLoggingIn = true;
+    });
+
+    // Simulate login delay
+    await Future.delayed(const Duration(seconds: 2));
+
+    setState(() {
+      _isLoggingIn = false;
+    });
+
+    Navigator.pushReplacementNamed(context, AppRoutes.studentDashboard);
   }
 
   @override
@@ -178,7 +204,7 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
                       ),
                       const SizedBox(height: 24),
 
-                      // Animated gradient login button
+                      // Animated gradient login button with 3-ball loader
                       AnimatedBuilder(
                         animation: _buttonGradientController,
                         builder: (context, child) {
@@ -214,12 +240,7 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
                               ],
                             ),
                             child: ElevatedButton(
-                              onPressed: () {
-                                Navigator.pushReplacementNamed(
-                                  context,
-                                  AppRoutes.studentDashboard,
-                                );
-                              },
+                              onPressed: _isLoggingIn ? null : _onLoginPressed,
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: Colors.transparent,
                                 shadowColor: Colors.transparent,
@@ -227,14 +248,16 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
                                   borderRadius: BorderRadius.circular(20),
                                 ),
                               ),
-                              child: const Text(
-                                'Login',
-                                style: TextStyle(
-                                  fontSize: 20,
-                                  fontWeight: FontWeight.bold,
-                                  color: Colors.white,
-                                ),
-                              ),
+                              child: _isLoggingIn
+                                  ? _LoadingDots(controller: _loadingController)
+                                  : const Text(
+                                      'Login',
+                                      style: TextStyle(
+                                        fontSize: 20,
+                                        fontWeight: FontWeight.bold,
+                                        color: Colors.white,
+                                      ),
+                                    ),
                             ),
                           );
                         },
@@ -254,7 +277,7 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
                       ),
                       const SizedBox(height: 16),
 
-                      // Social login row with equal icons
+                      // Social login row
                       Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
@@ -380,6 +403,37 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
           ),
         ),
       ),
+    );
+  }
+}
+
+/// THREE BALL LOADING ANIMATION
+class _LoadingDots extends StatelessWidget {
+  final AnimationController controller;
+  const _LoadingDots({required this.controller});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: List.generate(3, (i) {
+        return AnimatedBuilder(
+          animation: controller,
+          builder: (_, __) {
+            final value = sin((controller.value * 2 * pi) + (i * 1.3));
+            return Container(
+              margin: const EdgeInsets.symmetric(horizontal: 6),
+              transform: Matrix4.translationValues(0, -value * 8, 0),
+              width: 12,
+              height: 12,
+              decoration: const BoxDecoration(
+                color: Colors.white,
+                shape: BoxShape.circle,
+              ),
+            );
+          },
+        );
+      }),
     );
   }
 }
