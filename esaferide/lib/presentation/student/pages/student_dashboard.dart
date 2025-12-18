@@ -1,9 +1,11 @@
 // lib/student_dashboard_redesign.dart
-// Fixed & polished StudentDashboard
-// Changes: fixed pixel overflows, responsive text, safe rows, horizontal scrolling where needed
+// Fixed & polished StudentDashboard with Firestore integration and AppBar icons aligned
 
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:esaferide/presentation/student/pages/student_profile.dart';
 
 class StudentDashboard extends StatefulWidget {
   const StudentDashboard({super.key});
@@ -20,11 +22,22 @@ class _StudentDashboardState extends State<StudentDashboard>
   Timer? _countdownTimer;
   bool _showAlert = true;
 
+  // ---- Profile overlay control ----
+  bool _showStudentProfile = false;
+  // profile-complete flag previously tracked here; not required for current UI
+
+  // ---- Student info ----
+  String _fullName = '';
+  String _course = '';
+  String _regNumber = '';
+
   // Soft palette
   static const Color _primaryStart = Color(0xFF3E71DF);
   static const Color _primaryEnd = Color(0xFF00BFA5);
   static const Color _cardBg = Color(0xFFF7FAFB);
   static const Color _accentSoft = Color(0xFFEEF6FF);
+
+  int _currentIndex = 0;
 
   @override
   void initState() {
@@ -35,6 +48,35 @@ class _StudentDashboardState extends State<StudentDashboard>
     )..repeat(reverse: true);
 
     _startCountdown();
+    _loadStudentInfo();
+  }
+
+  Future<void> _loadStudentInfo() async {
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) return;
+
+      final doc = await FirebaseFirestore.instance
+          .collection('students')
+          .doc(user.uid)
+          .get();
+
+      if (doc.exists) {
+        final data = doc.data()!;
+        setState(() {
+          _fullName = data['fullName'] ?? '';
+          _course = data['course'] ?? '';
+          _regNumber = data['regNumber'] ?? '';
+        });
+      } else {
+        // Show profile overlay if no data
+        Future.delayed(const Duration(milliseconds: 400), () {
+          setState(() => _showStudentProfile = true);
+        });
+      }
+    } catch (e) {
+      debugPrint('Error loading student info: $e');
+    }
   }
 
   void _startCountdown() {
@@ -63,6 +105,12 @@ class _StudentDashboardState extends State<StudentDashboard>
     return '$minutes:$seconds';
   }
 
+  void _logout() async {
+    await FirebaseAuth.instance.signOut();
+    // navigate to login or splash page after logout
+    if (mounted) Navigator.of(context).pushReplacementNamed('/login');
+  }
+
   @override
   Widget build(BuildContext context) {
     final themeBackground = _isDark
@@ -86,7 +134,7 @@ class _StudentDashboardState extends State<StudentDashboard>
             ),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withOpacity(0.15),
+                color: Colors.black.withAlpha((0.15 * 255).round()),
                 blurRadius: 6,
                 offset: const Offset(0, 3),
               ),
@@ -97,17 +145,15 @@ class _StudentDashboardState extends State<StudentDashboard>
               padding: const EdgeInsets.symmetric(horizontal: 16),
               child: Row(
                 children: [
-                  Flexible(
-                    child: Text(
-                      'eSafeRide - Student',
-                      style: const TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 20,
-                        color: Colors.white,
-                      ),
-                      overflow: TextOverflow.ellipsis,
+                  const Text(
+                    'eSafeRide - Student',
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 20,
+                      color: Colors.white,
                     ),
                   ),
+                  const Spacer(),
                   IconButton(
                     tooltip: 'Toggle theme',
                     onPressed: () => setState(() => _isDark = !_isDark),
@@ -117,8 +163,9 @@ class _StudentDashboardState extends State<StudentDashboard>
                     ),
                   ),
                   IconButton(
-                    onPressed: () {},
-                    icon: const Icon(Icons.notifications, color: Colors.white),
+                    tooltip: 'Logout',
+                    onPressed: _logout,
+                    icon: const Icon(Icons.logout, color: Colors.white),
                   ),
                 ],
               ),
@@ -126,26 +173,42 @@ class _StudentDashboardState extends State<StudentDashboard>
           ),
         ),
       ),
-      body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _buildProfileHeader(),
-              const SizedBox(height: 18),
-              _buildQuickStatsCard(),
-              const SizedBox(height: 18),
-              _buildActionCards(),
-              const SizedBox(height: 18),
-              _buildLiveTripCard(),
-              const SizedBox(height: 18),
-              _buildSmartRoutingCard(),
-              const SizedBox(height: 22),
-              if (_showAlert) _buildFloatingAlert(),
-            ],
+      body: Stack(
+        children: [
+          SafeArea(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _buildProfileHeader(),
+                  const SizedBox(height: 18),
+                  _buildQuickStatsCard(),
+                  const SizedBox(height: 18),
+                  _buildActionCards(),
+                  const SizedBox(height: 18),
+                  _buildLiveTripCard(),
+                  const SizedBox(height: 18),
+                  _buildSmartRoutingCard(),
+                  const SizedBox(height: 22),
+                  if (_showAlert) _buildFloatingAlert(),
+                ],
+              ),
+            ),
           ),
-        ),
+
+          // ---- StudentProfile overlay ----
+          if (_showStudentProfile)
+            StudentProfile(
+              onClose: () async {
+                setState(() => _showStudentProfile = false);
+                await _loadStudentInfo();
+              },
+              onSkip: () {
+                setState(() => _showStudentProfile = false);
+              },
+            ),
+        ],
       ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () {},
@@ -153,7 +216,30 @@ class _StudentDashboardState extends State<StudentDashboard>
         icon: const Icon(Icons.add_location_alt),
         backgroundColor: _primaryEnd,
       ),
-      bottomNavigationBar: _buildBottomNav(),
+      bottomNavigationBar: BottomNavigationBar(
+        currentIndex: _currentIndex,
+        selectedItemColor: _primaryStart,
+        unselectedItemColor: Colors.grey[500],
+        onTap: (index) {
+          setState(() {
+            _currentIndex = index;
+            if (index == 2) {
+              _showStudentProfile = true;
+            }
+          });
+        },
+        items: const [
+          BottomNavigationBarItem(icon: Icon(Icons.home_filled), label: 'Home'),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.directions_bus),
+            label: 'Trips',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.person_outline),
+            label: 'Profile',
+          ),
+        ],
+      ),
     );
   }
 
@@ -181,7 +267,7 @@ class _StudentDashboardState extends State<StudentDashboard>
                   ),
                   boxShadow: [
                     BoxShadow(
-                      color: _primaryStart.withOpacity(0.20),
+                      color: _primaryStart.withAlpha((0.20 * 255).round()),
                       blurRadius: 12,
                       offset: const Offset(0, 6),
                     ),
@@ -200,12 +286,19 @@ class _StudentDashboardState extends State<StudentDashboard>
                     return Container(
                       color: Colors.white,
                       alignment: Alignment.center,
-                      child: const CircleAvatar(
+                      child: CircleAvatar(
                         radius: 28,
                         backgroundColor: _primaryEnd,
                         child: Text(
-                          'MJ',
-                          style: TextStyle(
+                          _fullName.isNotEmpty
+                              ? _fullName
+                                    .split(' ')
+                                    .map((e) => e[0])
+                                    .take(2)
+                                    .join()
+                                    .toUpperCase()
+                              : 'MJ',
+                          style: const TextStyle(
                             color: Colors.white,
                             fontWeight: FontWeight.bold,
                             fontSize: 18,
@@ -230,44 +323,42 @@ class _StudentDashboardState extends State<StudentDashboard>
               ),
               const SizedBox(height: 4),
               Row(
-                children: const [
+                children: [
                   Flexible(
                     child: Text(
-                      'Madrine Jean',
-                      style: TextStyle(
+                      _fullName.isNotEmpty ? _fullName : 'Madrine Jean',
+                      style: const TextStyle(
                         fontSize: 20,
                         fontWeight: FontWeight.bold,
                       ),
                       overflow: TextOverflow.ellipsis,
                     ),
                   ),
-                  SizedBox(width: 8),
-                  Icon(Icons.verified, color: Colors.blueAccent, size: 18),
+                  const SizedBox(width: 8),
+                  const Icon(
+                    Icons.verified,
+                    color: Colors.blueAccent,
+                    size: 18,
+                  ),
                 ],
               ),
               const SizedBox(height: 6),
               Row(
-                children: const [
-                  Icon(Icons.school, size: 14, color: Colors.grey),
-                  SizedBox(width: 6),
+                children: [
+                  const Icon(Icons.school, size: 14, color: Colors.grey),
+                  const SizedBox(width: 6),
                   Flexible(
                     child: Text(
-                      'Computer Science • 21U12345',
-                      style: TextStyle(color: Colors.grey, fontSize: 12),
+                      _course.isNotEmpty && _regNumber.isNotEmpty
+                          ? '$_course • $_regNumber'
+                          : 'Computer Science • 21U12345',
+                      style: const TextStyle(color: Colors.grey, fontSize: 12),
                       overflow: TextOverflow.ellipsis,
                     ),
                   ),
                 ],
               ),
             ],
-          ),
-        ),
-        Material(
-          color: Colors.transparent,
-          child: IconButton(
-            tooltip: 'Profile',
-            onPressed: () {},
-            icon: const Icon(Icons.person_outline),
           ),
         ),
       ],
@@ -296,7 +387,7 @@ class _StudentDashboardState extends State<StudentDashboard>
               Container(
                 padding: const EdgeInsets.all(8),
                 decoration: BoxDecoration(
-                  color: bg.withOpacity(0.14),
+                  color: bg.withAlpha((0.14 * 255).round()),
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: Icon(icon, size: 20, color: bg),
@@ -367,13 +458,16 @@ class _StudentDashboardState extends State<StudentDashboard>
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(16),
                 gradient: LinearGradient(
-                  colors: [itemColor.withOpacity(0.92), _accentSoft],
+                  colors: [
+                    itemColor.withAlpha((0.92 * 255).round()),
+                    _accentSoft,
+                  ],
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
                 ),
                 boxShadow: [
                   BoxShadow(
-                    color: itemColor.withOpacity(0.22),
+                    color: itemColor.withAlpha((0.22 * 255).round()),
                     blurRadius: 10,
                     offset: const Offset(0, 6),
                   ),
@@ -384,7 +478,7 @@ class _StudentDashboardState extends State<StudentDashboard>
                 children: [
                   CircleAvatar(
                     radius: 18,
-                    backgroundColor: itemColor.withOpacity(0.18),
+                    backgroundColor: itemColor.withAlpha((0.18 * 255).round()),
                     child: Icon(item['icon'] as IconData, color: itemColor),
                   ),
                   const Spacer(),
@@ -442,7 +536,7 @@ class _StudentDashboardState extends State<StudentDashboard>
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'Dormitory → Main Campus',
+                        'Marystuart → COCIS',
                         style: TextStyle(color: Colors.grey[700]),
                       ),
                       const SizedBox(height: 8),
@@ -457,8 +551,10 @@ class _StudentDashboardState extends State<StudentDashboard>
                                   vertical: 6,
                                 ),
                                 decoration: BoxDecoration(
-                                  color: accent.withOpacity(
-                                    0.12 * (1 + _pulseController.value),
+                                  color: accent.withAlpha(
+                                    ((0.12 * (1 + _pulseController.value)) *
+                                            255)
+                                        .round(),
                                   ),
                                   borderRadius: BorderRadius.circular(8),
                                 ),
@@ -505,8 +601,8 @@ class _StudentDashboardState extends State<StudentDashboard>
                             borderRadius: BorderRadius.circular(12),
                             gradient: LinearGradient(
                               colors: [
-                                accent.withOpacity(0.95),
-                                accent.withOpacity(0.6),
+                                accent.withAlpha((0.95 * 255).round()),
+                                accent.withAlpha((0.6 * 255).round()),
                               ],
                               begin: Alignment.topLeft,
                               end: Alignment.bottomRight,
@@ -571,12 +667,12 @@ class _StudentDashboardState extends State<StudentDashboard>
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: const [
                           Text(
-                            'Dormitory',
+                            'Marystuart',
                             style: TextStyle(fontWeight: FontWeight.bold),
                           ),
                           Spacer(),
                           Text(
-                            'Main Campus',
+                            'COCIS',
                             style: TextStyle(fontWeight: FontWeight.bold),
                           ),
                         ],
@@ -652,9 +748,11 @@ class _StudentDashboardState extends State<StudentDashboard>
       curve: Curves.easeInOut,
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: Colors.orangeAccent.withOpacity(0.12),
+        color: Colors.orangeAccent.withAlpha((0.12 * 255).round()),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.orangeAccent.withOpacity(0.2)),
+        border: Border.all(
+          color: Colors.orangeAccent.withAlpha((0.2 * 255).round()),
+        ),
       ),
       child: Row(
         children: [
@@ -671,25 +769,6 @@ class _StudentDashboardState extends State<StudentDashboard>
       ),
     );
   }
-
-  // ---- Bottom Nav ----
-  Widget _buildBottomNav() {
-    return BottomNavigationBar(
-      selectedItemColor: _primaryStart,
-      unselectedItemColor: Colors.grey[500],
-      items: const [
-        BottomNavigationBarItem(icon: Icon(Icons.home_filled), label: 'Home'),
-        BottomNavigationBarItem(
-          icon: Icon(Icons.directions_bus),
-          label: 'Trips',
-        ),
-        BottomNavigationBarItem(
-          icon: Icon(Icons.person_outline),
-          label: 'Profile',
-        ),
-      ],
-    );
-  }
 }
 
 // ---- Custom painter for Smart Routing ----
@@ -697,7 +776,7 @@ class _DottedRoutePainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final paint = Paint()
-      ..color = Colors.grey.withOpacity(0.5)
+      ..color = Colors.grey.withAlpha((0.5 * 255).round())
       ..strokeWidth = 2
       ..style = PaintingStyle.stroke;
 

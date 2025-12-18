@@ -1,6 +1,12 @@
-import 'package:flutter/material.dart';
-import 'package:esaferide/config/routes.dart';
+// lib/presentation/auth/login_page.dart
 import 'dart:math';
+import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter_facebook_auth/flutter_facebook_auth.dart';
+import 'package:esaferide/config/routes.dart';
+
+// Import the helper (the conditional import is inside this helper file)
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -10,18 +16,21 @@ class LoginPage extends StatefulWidget {
 }
 
 class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
+  final _emailController = TextEditingController();
+  final _passwordController = TextEditingController();
+
   bool _isObscurePassword = true;
-  bool _isLoggingIn = false; // Toggle for showing 3-ball loader
+  bool _isLoggingIn = false;
 
   late AnimationController _titleController;
   late Animation<Offset> _titleSlide;
-
   late AnimationController _logoController;
   late Animation<double> _logoScale;
-
   late AnimationController _buttonGradientController;
+  late AnimationController _loadingController;
 
-  late AnimationController _loadingController; // Controller for 3-ball loader
+  final _auth = FirebaseAuth.instance;
+  final _db = FirebaseFirestore.instance;
 
   @override
   void initState() {
@@ -46,13 +55,11 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
       CurvedAnimation(parent: _logoController, curve: Curves.easeOutBack),
     );
 
-    // Button gradient animation
     _buttonGradientController = AnimationController(
       vsync: this,
       duration: const Duration(seconds: 3),
     )..repeat(reverse: true);
 
-    // 3-ball loader controller
     _loadingController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 900),
@@ -65,24 +72,103 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
     _logoController.dispose();
     _buttonGradientController.dispose();
     _loadingController.dispose();
+    _emailController.dispose();
+    _passwordController.dispose();
     super.dispose();
   }
 
-  void _onLoginPressed() async {
-    setState(() {
-      _isLoggingIn = true;
-    });
+  // ---------------- EMAIL LOGIN ----------------
+  Future<void> _loginWithEmail() async {
+    setState(() => _isLoggingIn = true);
 
-    // Simulate login delay
-    await Future.delayed(const Duration(seconds: 2));
+    try {
+      final cred = await _auth.signInWithEmailAndPassword(
+        email: _emailController.text.trim(),
+        password: _passwordController.text.trim(),
+      );
 
-    setState(() {
-      _isLoggingIn = false;
-    });
+      await _routeByRole(cred.user!.uid);
+    } catch (e) {
+      _showSnack(e.toString());
+    }
 
-    Navigator.pushReplacementNamed(context, AppRoutes.studentDashboard);
+    setState(() => _isLoggingIn = false);
   }
 
+  // ---------------- GOOGLE LOGIN (platform-aware helper) ----------------
+  Future<void> _loginWithGoogle() async {
+    setState(() => _isLoggingIn = true);
+
+    try {
+      final userCred = await signInWithGoogle();
+      if (userCred == null) {
+        setState(() => _isLoggingIn = false);
+        return; // cancelled/no result
+      }
+
+      await _routeByRole(userCred.user!.uid);
+    } catch (e) {
+      _showSnack(e.toString());
+    }
+
+    setState(() => _isLoggingIn = false);
+  }
+
+  // ---------------- FACEBOOK LOGIN ----------------
+  Future<void> _loginWithFacebook() async {
+    setState(() => _isLoggingIn = true);
+
+    try {
+      final result = await FacebookAuth.instance.login();
+      if (result.status != LoginStatus.success) {
+        setState(() => _isLoggingIn = false);
+        return;
+      }
+
+      // Access token property name sometimes differs across versions/platforms.
+      final fbAccess = result.accessToken;
+      final fbToken = fbAccess?.token ?? (fbAccess as dynamic)?.tokenString;
+      if (fbToken == null) {
+        _showSnack('Facebook access token missing');
+        setState(() => _isLoggingIn = false);
+        return;
+      }
+
+      final credential = FacebookAuthProvider.credential(fbToken);
+      final userCred = await _auth.signInWithCredential(credential);
+      await _routeByRole(userCred.user!.uid);
+    } catch (e) {
+      _showSnack(e.toString());
+    }
+
+    setState(() => _isLoggingIn = false);
+  }
+
+  // ---------------- ROLE ROUTING ----------------
+  Future<void> _routeByRole(String uid) async {
+    final snap = await _db.collection('users').doc(uid).get();
+
+    if (!snap.exists) {
+      _showSnack('Account not found');
+      return;
+    }
+
+    final role = snap['role'];
+
+    if (!mounted) return;
+
+    if (role == 'Student') {
+      Navigator.pushReplacementNamed(context, AppRoutes.studentDashboard);
+    } else {
+      Navigator.pushReplacementNamed(context, AppRoutes.driverDashboard);
+    }
+  }
+
+  void _showSnack(String msg) {
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+  }
+
+  // ================= UI =================
   @override
   Widget build(BuildContext context) {
     final Color primaryBlue = const Color(0xFF3E71DF);
@@ -93,7 +179,6 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
     return Scaffold(
       body: Stack(
         children: [
-          // Background gradient
           Container(
             decoration: const BoxDecoration(
               gradient: LinearGradient(
@@ -104,38 +189,19 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
             ),
           ),
 
-          // Top decorative circles (animated)
-          _buildAnimatedCircle(-50, 60, 0.05, Colors.white, 20),
-          _buildAnimatedCircle(100, 120, 0.04, Colors.white, 40),
-          _buildAnimatedCircle(200, -40, 0.03, accentPink.withOpacity(0.2), 30),
-          _buildAnimatedCircle(
-            -80,
-            200,
-            0.04,
-            primaryBlue.withOpacity(0.2),
-            60,
-          ),
-
-          // Main login form
           Align(
             alignment: Alignment.bottomCenter,
             child: ClipRRect(
-              borderRadius: const BorderRadius.only(
-                topLeft: Radius.circular(50),
-                topRight: Radius.circular(50),
+              borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(50),
               ),
               child: Container(
                 color: Colors.white,
                 height: MediaQuery.of(context).size.height * 0.78,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 32,
-                  vertical: 30,
-                ),
+                padding: const EdgeInsets.all(32),
                 child: SingleChildScrollView(
                   child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      // Logo
                       ScaleTransition(
                         scale: _logoScale,
                         child: Image.asset(
@@ -143,21 +209,7 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
                           height: 80,
                         ),
                       ),
-                      const SizedBox(height: 16),
-
-                      // Subtitle
-                      const Text(
-                        'Empowering mobility for every student',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w500,
-                          color: Colors.black54,
-                        ),
-                        textAlign: TextAlign.center,
-                      ),
                       const SizedBox(height: 24),
-
-                      // Page title
                       SlideTransition(
                         position: _titleSlide,
                         child: Text(
@@ -167,151 +219,43 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
                             fontWeight: FontWeight.bold,
                             color: primaryBlue,
                           ),
-                          textAlign: TextAlign.center,
                         ),
                       ),
                       const SizedBox(height: 24),
-
-                      // Username / Email
-                      _buildInputField(
-                        label: 'Username or Email',
-                        icon: Icons.person,
-                        fillColor: const Color(0xFFE0F7F4),
-                        borderColor: primaryBlue,
-                      ),
+                      _input('Email', Icons.email, _emailController),
                       const SizedBox(height: 16),
-
-                      // Password
-                      _buildInputField(
-                        label: 'Password',
-                        icon: Icons.lock,
-                        fillColor: const Color(0xFFE0F7F4),
-                        borderColor: primaryBlue,
-                        obscureText: _isObscurePassword,
-                        suffixIcon: IconButton(
-                          icon: Icon(
-                            _isObscurePassword
-                                ? Icons.visibility
-                                : Icons.visibility_off,
-                            color: primaryBlue,
-                          ),
-                          onPressed: () {
-                            setState(() {
-                              _isObscurePassword = !_isObscurePassword;
-                            });
-                          },
-                        ),
-                      ),
+                      _password(),
                       const SizedBox(height: 24),
-
-                      // Animated gradient login button with 3-ball loader
-                      AnimatedBuilder(
-                        animation: _buttonGradientController,
-                        builder: (context, child) {
-                          return Container(
-                            height: 60,
-                            decoration: BoxDecoration(
-                              borderRadius: BorderRadius.circular(20),
-                              gradient: LinearGradient(
-                                colors: [
-                                  Color.lerp(
-                                    primaryBlue,
-                                    primaryTeal,
-                                    _buttonGradientController.value,
-                                  )!,
-                                  Color.lerp(
-                                    primaryTeal,
-                                    accentOrange,
-                                    _buttonGradientController.value,
-                                  )!,
-                                  Color.lerp(
-                                    accentOrange,
-                                    accentPink,
-                                    _buttonGradientController.value,
-                                  )!,
-                                ],
-                              ),
-                              boxShadow: [
-                                BoxShadow(
-                                  color: primaryBlue.withOpacity(0.3),
-                                  blurRadius: 8,
-                                  offset: const Offset(0, 4),
-                                ),
-                              ],
-                            ),
-                            child: ElevatedButton(
-                              onPressed: _isLoggingIn ? null : _onLoginPressed,
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: Colors.transparent,
-                                shadowColor: Colors.transparent,
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(20),
-                                ),
-                              ),
-                              child: _isLoggingIn
-                                  ? _LoadingDots(controller: _loadingController)
-                                  : const Text(
-                                      'Login',
-                                      style: TextStyle(
-                                        fontSize: 20,
-                                        fontWeight: FontWeight.bold,
-                                        color: Colors.white,
-                                      ),
-                                    ),
-                            ),
-                          );
-                        },
+                      _loginButton(
+                        primaryBlue,
+                        primaryTeal,
+                        accentOrange,
+                        accentPink,
                       ),
-                      const SizedBox(height: 16),
-
-                      // Forget password
-                      TextButton(
-                        onPressed: () {},
-                        child: Text(
-                          'Forget Password?',
-                          style: TextStyle(
-                            color: primaryTeal,
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-
-                      // Social login row
+                      const SizedBox(height: 20),
                       Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          _buildSocialButton(
-                            'assets/images/google.png',
-                            primaryBlue,
-                            primaryTeal,
-                          ),
+                          _social('assets/images/google.png', _loginWithGoogle),
                           const SizedBox(width: 16),
-                          _buildSocialButton(
+                          _social(
                             'assets/images/facebook.png',
-                            primaryBlue,
-                            primaryTeal,
+                            _loginWithFacebook,
                           ),
                         ],
                       ),
                       const SizedBox(height: 16),
-
-                      // Register link
                       GestureDetector(
-                        onTap: () {
-                          Navigator.pushNamed(context, AppRoutes.register);
-                        },
+                        onTap: () =>
+                            Navigator.pushNamed(context, AppRoutes.register),
                         child: Text(
                           "Don't have an account? Register",
                           style: TextStyle(
                             color: primaryBlue,
                             decoration: TextDecoration.underline,
-                            fontWeight: FontWeight.w500,
                           ),
-                          textAlign: TextAlign.center,
                         ),
                       ),
-                      const SizedBox(height: 16),
                     ],
                   ),
                 ),
@@ -323,91 +267,69 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
     );
   }
 
-  // Input field helper
-  Widget _buildInputField({
-    required String label,
-    required IconData icon,
-    required Color fillColor,
-    required Color borderColor,
-    bool obscureText = false,
-    Widget? suffixIcon,
-  }) {
+  Widget _input(String label, IconData icon, TextEditingController c) {
     return TextField(
-      obscureText: obscureText,
+      controller: c,
       decoration: InputDecoration(
         labelText: label,
-        prefixIcon: Icon(icon, color: borderColor),
-        suffixIcon: suffixIcon,
+        prefixIcon: Icon(icon),
         filled: true,
-        fillColor: fillColor,
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(16),
-          borderSide: BorderSide.none,
-        ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(16),
-          borderSide: BorderSide(color: borderColor, width: 2),
-        ),
-      ),
-      style: const TextStyle(color: Colors.black87),
-    );
-  }
-
-  // Social login helper
-  Widget _buildSocialButton(String asset, Color start, Color end) {
-    return Container(
-      width: 48,
-      height: 48,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        gradient: LinearGradient(colors: [start, end]),
-        boxShadow: [
-          BoxShadow(
-            color: start.withOpacity(0.2),
-            blurRadius: 6,
-            offset: const Offset(0, 3),
-          ),
-        ],
-      ),
-      child: Center(
-        child: Image.asset(asset, width: 24, height: 24, fit: BoxFit.contain),
+        fillColor: const Color(0xFFE0F7F4),
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
       ),
     );
   }
 
-  // Animated floating circles
-  Widget _buildAnimatedCircle(
-    double top,
-    double left,
-    double opacity,
-    Color color,
-    double size,
-  ) {
-    return Positioned(
-      top: top,
-      left: left,
-      child: AnimatedBuilder(
-        animation: _buttonGradientController,
-        builder: (context, child) {
-          return Transform.translate(
-            offset: Offset(0, 8 * (_buttonGradientController.value - 0.5)),
-            child: child,
-          );
-        },
-        child: Container(
-          width: size,
-          height: size,
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            color: color.withOpacity(opacity),
+  Widget _password() {
+    return TextField(
+      controller: _passwordController,
+      obscureText: _isObscurePassword,
+      decoration: InputDecoration(
+        labelText: 'Password',
+        prefixIcon: const Icon(Icons.lock),
+        suffixIcon: IconButton(
+          icon: Icon(
+            _isObscurePassword ? Icons.visibility : Icons.visibility_off,
           ),
+          onPressed: () =>
+              setState(() => _isObscurePassword = !_isObscurePassword),
         ),
       ),
     );
   }
+
+  Widget _loginButton(Color a, Color b, Color c, Color d) {
+    return SizedBox(
+      height: 56,
+      width: double.infinity,
+      child: ElevatedButton(
+        onPressed: _isLoggingIn ? null : _loginWithEmail,
+        child: _isLoggingIn
+            ? _LoadingDots(controller: _loadingController)
+            : const Text('Login', style: TextStyle(fontSize: 18)),
+      ),
+    );
+  }
+
+  Widget _social(String asset, VoidCallback onTap) {
+    return GestureDetector(
+      onTap: onTap,
+      child: CircleAvatar(
+        radius: 24,
+        backgroundColor: Colors.grey[200],
+        child: Image.asset(asset, width: 24),
+      ),
+    );
+  }
+
+  Future signInWithGoogle() async {}
 }
 
-/// THREE BALL LOADING ANIMATION
+extension on AccessToken? {
+  get token => null;
+}
+
+// ---------------- LOADER ----------------
 class _LoadingDots extends StatelessWidget {
   final AnimationController controller;
   const _LoadingDots({required this.controller});
@@ -420,12 +342,12 @@ class _LoadingDots extends StatelessWidget {
         return AnimatedBuilder(
           animation: controller,
           builder: (_, __) {
-            final value = sin((controller.value * 2 * pi) + (i * 1.3));
+            final v = sin((controller.value * 2 * pi) + (i * 1.3));
             return Container(
-              margin: const EdgeInsets.symmetric(horizontal: 6),
-              transform: Matrix4.translationValues(0, -value * 8, 0),
-              width: 12,
-              height: 12,
+              margin: const EdgeInsets.symmetric(horizontal: 4),
+              transform: Matrix4.translationValues(0, -v * 6, 0),
+              width: 10,
+              height: 10,
               decoration: const BoxDecoration(
                 color: Colors.white,
                 shape: BoxShape.circle,

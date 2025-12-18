@@ -1,0 +1,47 @@
+{
+  "project_info": {
+    "project_number": "602253872500",
+    "project_id": "esaferide",
+    "storage_bucket": "esaferide.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:602253872500:android:00a64248fec0b855cfb021",
+        "android_client_info": {
+          "package_name": "com.example.esaferide"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "602253872500-t76u75ol0cie67ma66rd28s27ji0qi2c.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.example.esaferide",
+            "certificate_hash": "b90769a01b440538a711c4c4746862ccee54efa0"
+          }
+        },
+        {
+          "client_id": "602253872500-kdtl5qhdh6pr13qt8l1vo7qkrgshekdv.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDaWV9zF0-5V3pvz7VbXESxinZVLCPAamA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "602253872500-kdtl5qhdh6pr13qt8l1vo7qkrgshekdv.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

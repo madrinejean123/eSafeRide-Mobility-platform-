@@ -80,6 +80,7 @@ class _SplashScreenState extends State<SplashScreen>
   void _onGetStarted() async {
     setState(() => _isLoading = true);
     await Future.delayed(const Duration(seconds: 2));
+    if (!mounted) return;
     Navigator.of(context).pushReplacementNamed(AppRoutes.login);
   }
 
@@ -102,7 +103,7 @@ class _SplashScreenState extends State<SplashScreen>
                 width: 6,
                 height: 6,
                 decoration: BoxDecoration(
-                  color: Colors.grey.withOpacity(0.12),
+                  color: Colors.grey.withAlpha((0.12 * 255).round()),
                   shape: BoxShape.circle,
                 ),
               ),
@@ -140,7 +141,9 @@ class _SplashScreenState extends State<SplashScreen>
                     borderRadius: BorderRadius.circular(100),
                     boxShadow: [
                       BoxShadow(
-                        color: const Color(0xFF2563EB).withOpacity(0.25),
+                        color: const Color(
+                          0xFF2563EB,
+                        ).withAlpha((0.25 * 255).round()),
                         blurRadius: 35,
                         offset: const Offset(0, 18),
                       ),
@@ -186,7 +189,7 @@ class _SplashScreenState extends State<SplashScreen>
                         ),
                         boxShadow: [
                           BoxShadow(
-                            color: Colors.black.withOpacity(0.25),
+                            color: Colors.black.withAlpha((0.25 * 255).round()),
                             blurRadius: 16,
                             offset: const Offset(0, 6),
                           ),

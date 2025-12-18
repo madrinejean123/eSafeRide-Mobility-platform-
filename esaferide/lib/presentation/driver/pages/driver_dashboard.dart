@@ -1,9 +1,14 @@
 import 'dart:async';
+import 'dart:io';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/material.dart';
 import 'package:esaferide/config/routes.dart';
+import 'package:esaferide/presentation/driver/pages/driver_profile.dart';
 
 class DriverDashboard extends StatefulWidget {
-  const DriverDashboard({super.key});
+  final String uid;
+  const DriverDashboard({super.key, required this.uid});
 
   @override
   State<DriverDashboard> createState() => _DriverDashboardState();
@@ -12,16 +17,43 @@ class DriverDashboard extends StatefulWidget {
 class _DriverDashboardState extends State<DriverDashboard>
     with SingleTickerProviderStateMixin {
   bool _isDark = false;
-  late AnimationController _pulseController;
+  late final AnimationController _pulseController;
   Timer? _tripTimer;
-  Duration _currentTripTime = const Duration(minutes: 12, seconds: 0);
-  bool _showAlert = true;
+  Duration _currentTripTime = const Duration(minutes: 12);
 
-  // Colors matching the student dashboard
+  // Overlay & profile
+  bool _showDriverProfile = false;
+  // tracked when profile is saved; not used in UI currently
+
+  // Driver info
+  String _driverName = '';
+  String _driverPhotoUrl = '';
+
+  // Image picking
+  // ImagePicker is used inside DriverProfile; dashboard does not pick images directly
+  File? idFile, licenseFile, profilePhoto, motorcyclePhoto;
+
+  // Colors
   static const Color _primaryStart = Color(0xFF3E71DF);
   static const Color _primaryEnd = Color(0xFF00BFA5);
-  static const Color _cardBg = Color(0xFFF7FAFB);
   static const Color _accentSoft = Color(0xFFEEF6FF);
+
+  // Form controllers
+  final _formKey = GlobalKey<FormState>();
+  final TextEditingController fullNameCtrl = TextEditingController();
+  final TextEditingController phoneCtrl = TextEditingController();
+  final TextEditingController emailCtrl = TextEditingController();
+  final TextEditingController addressCtrl = TextEditingController();
+  final TextEditingController govIdCtrl = TextEditingController();
+  final TextEditingController licenseNoCtrl = TextEditingController();
+  final TextEditingController regNoCtrl = TextEditingController();
+  final TextEditingController makeModelCtrl = TextEditingController();
+  final TextEditingController yearCtrl = TextEditingController();
+  final TextEditingController emergencyNameCtrl = TextEditingController();
+  final TextEditingController emergencyPhoneCtrl = TextEditingController();
+
+  // local saving flag handled inside DriverProfile; not used here
+  bool _showAlert = true;
 
   @override
   void initState() {
@@ -32,25 +64,115 @@ class _DriverDashboardState extends State<DriverDashboard>
     )..repeat(reverse: true);
 
     _startTripCountdown();
+    _checkProfileCompletion();
   }
 
-  void _startTripCountdown() {
-    _tripTimer?.cancel();
-    _tripTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      if (_currentTripTime.inSeconds <= 0)
-        timer.cancel();
-      else
-        setState(() {
-          _currentTripTime = Duration(seconds: _currentTripTime.inSeconds - 1);
-        });
+  // -------------------- PROFILE LOGIC --------------------
+  Future<void> _checkProfileCompletion() async {
+    final doc = await FirebaseFirestore.instance
+        .collection('drivers')
+        .doc(widget.uid)
+        .get();
+
+    if (!doc.exists || doc.data() == null) {
+      setState(() => _showDriverProfile = true);
+    } else {
+      final data = doc.data()!;
+      fullNameCtrl.text = data['fullName'] ?? '';
+      phoneCtrl.text = data['phone'] ?? '';
+      emailCtrl.text = data['email'] ?? '';
+      addressCtrl.text = data['address'] ?? '';
+      govIdCtrl.text = data['govId'] ?? '';
+      licenseNoCtrl.text = data['licenseNo'] ?? '';
+      regNoCtrl.text = data['motorcycle']?['regNo'] ?? '';
+      makeModelCtrl.text = data['motorcycle']?['makeModel'] ?? '';
+      yearCtrl.text = data['motorcycle']?['year'] ?? '';
+      emergencyNameCtrl.text = data['emergencyContact']?['name'] ?? '';
+      emergencyPhoneCtrl.text = data['emergencyContact']?['phone'] ?? '';
+
+      setState(() {
+        _driverName = fullNameCtrl.text;
+        _driverPhotoUrl = data['profilePhotoUrl'] ?? '';
+      });
+    }
+  }
+
+  Future<void> _saveProfile() async {
+    if (!_formKey.currentState!.validate()) return;
+
+    // show saving handled by the overlay form; dashboard doesn't track _isSaving now
+
+    String? idUrl = idFile != null
+        ? await _uploadFile(idFile!, 'drivers/${widget.uid}/id.jpg')
+        : null;
+    String? licenseUrl = licenseFile != null
+        ? await _uploadFile(licenseFile!, 'drivers/${widget.uid}/license.jpg')
+        : null;
+    String? profileUrl = profilePhoto != null
+        ? await _uploadFile(profilePhoto!, 'drivers/${widget.uid}/profile.jpg')
+        : null;
+    String? motorcycleUrl = motorcyclePhoto != null
+        ? await _uploadFile(
+            motorcyclePhoto!,
+            'drivers/${widget.uid}/motorcycle.jpg',
+          )
+        : null;
+
+    await FirebaseFirestore.instance.collection('drivers').doc(widget.uid).set({
+      'fullName': fullNameCtrl.text.trim(),
+      'phone': phoneCtrl.text.trim(),
+      'email': emailCtrl.text.trim(),
+      'address': addressCtrl.text.trim(),
+      'govId': govIdCtrl.text.trim(),
+      'govIdUrl': idUrl,
+      'licenseNo': licenseNoCtrl.text.trim(),
+      'licenseUrl': licenseUrl,
+      'profilePhotoUrl': profileUrl,
+      'motorcycle': {
+        'regNo': regNoCtrl.text.trim(),
+        'makeModel': makeModelCtrl.text.trim(),
+        'year': yearCtrl.text.trim(),
+        'photoUrl': motorcycleUrl,
+      },
+      'emergencyContact': {
+        'name': emergencyNameCtrl.text.trim(),
+        'phone': emergencyPhoneCtrl.text.trim(),
+      },
+      'createdAt': FieldValue.serverTimestamp(),
+    });
+
+    setState(() {
+      _showDriverProfile = false;
+      _driverName = fullNameCtrl.text;
+      _driverPhotoUrl = profileUrl ?? '';
     });
   }
 
-  @override
-  void dispose() {
-    _pulseController.dispose();
+  Future<String?> _uploadFile(File file, String path) async {
+    try {
+      final ref = FirebaseStorage.instance.ref().child(path);
+      await ref.putFile(file);
+      return await ref.getDownloadURL();
+    } catch (e) {
+      debugPrint('Upload error: $e');
+      return null;
+    }
+  }
+
+  // File picking is handled by `DriverProfile` widget; dashboard no longer needs _pickFile
+
+  // -------------------- TRIP COUNTDOWN --------------------
+  void _startTripCountdown() {
     _tripTimer?.cancel();
-    super.dispose();
+    _tripTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (_currentTripTime.inSeconds <= 0) {
+        timer.cancel();
+      } else {
+        setState(() {
+          _currentTripTime = Duration(seconds: _currentTripTime.inSeconds - 1);
+        });
+      }
+    });
   }
 
   String _formatDuration(Duration d) {
@@ -60,6 +182,14 @@ class _DriverDashboardState extends State<DriverDashboard>
   }
 
   @override
+  void dispose() {
+    _pulseController.dispose();
+    _tripTimer?.cancel();
+    super.dispose();
+  }
+
+  // -------------------- UI --------------------
+  @override
   Widget build(BuildContext context) {
     final themeBackground = _isDark
         ? Colors.grey[900]!
@@ -68,50 +198,38 @@ class _DriverDashboardState extends State<DriverDashboard>
     return Scaffold(
       backgroundColor: themeBackground,
       appBar: _buildAppBar(),
-      body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _buildDriverProfile(),
-              const SizedBox(height: 18),
-              _buildQuickStats(),
-              const SizedBox(height: 18),
-              _buildQuickActions(),
-              const SizedBox(height: 18),
-              _buildLiveTripCard(),
-              const SizedBox(height: 18),
-              _buildEarningsCard(),
-              const SizedBox(height: 18),
-              if (_showAlert) _buildFloatingAlert(),
-              const SizedBox(height: 18),
-              ElevatedButton(
-                onPressed: () {
-                  Navigator.pushReplacementNamed(context, AppRoutes.login);
-                },
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFFFDE047),
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 40,
-                    vertical: 16,
-                  ),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                ),
-                child: const Text(
-                  'Logout',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.black87,
-                  ),
-                ),
+      body: Stack(
+        children: [
+          SafeArea(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _buildDriverProfileCard(),
+                  const SizedBox(height: 18),
+                  _buildQuickStats(),
+                  const SizedBox(height: 18),
+                  _buildQuickActions(),
+                  const SizedBox(height: 18),
+                  _buildLiveTripCard(),
+                  const SizedBox(height: 18),
+                  _buildEarningsCard(),
+                  const SizedBox(height: 18),
+                ],
               ),
-            ],
+            ),
           ),
-        ),
+          if (_showAlert) _buildFloatingAlert(),
+
+          // Overlay for DriverProfile
+          if (_showDriverProfile)
+            DriverProfile(
+              uid: widget.uid,
+              onSave: _saveProfile,
+              onSkip: () => setState(() => _showDriverProfile = false),
+            ),
+        ],
       ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () {},
@@ -123,59 +241,159 @@ class _DriverDashboardState extends State<DriverDashboard>
     );
   }
 
-  // ----------------- APP BAR -----------------
-  AppBar _buildAppBar() {
-    return AppBar(
-      title: const Text('eSafeRide - Driver'),
-      centerTitle: true,
-      backgroundColor: _primaryStart,
-      actions: [
-        IconButton(
-          tooltip: 'Toggle Theme',
-          onPressed: () => setState(() => _isDark = !_isDark),
-          icon: Icon(_isDark ? Icons.dark_mode : Icons.light_mode),
+  PreferredSizeWidget _buildAppBar() {
+    return PreferredSize(
+      preferredSize: const Size.fromHeight(70),
+      child: Container(
+        decoration: BoxDecoration(
+          gradient: const LinearGradient(
+            colors: [_primaryStart, _primaryEnd],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+          borderRadius: const BorderRadius.only(
+            bottomLeft: Radius.circular(24),
+            bottomRight: Radius.circular(24),
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withAlpha((0.15 * 255).round()),
+              blurRadius: 6,
+              offset: const Offset(0, 3),
+            ),
+          ],
         ),
-        IconButton(
-          tooltip: 'Notifications',
-          onPressed: () {},
-          icon: const Icon(Icons.notifications),
+        child: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Row(
+              children: [
+                const Flexible(
+                  child: Text(
+                    'eSafeRide - Driver',
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 20,
+                      color: Colors.white,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                IconButton(
+                  tooltip: 'Toggle Theme',
+                  onPressed: () => setState(() => _isDark = !_isDark),
+                  icon: Icon(
+                    _isDark ? Icons.dark_mode : Icons.light_mode,
+                    color: Colors.white,
+                  ),
+                ),
+                IconButton(
+                  tooltip: 'Logout',
+                  onPressed: () {
+                    Navigator.pushReplacementNamed(context, AppRoutes.login);
+                  },
+                  icon: const Icon(Icons.logout, color: Colors.white),
+                ),
+                IconButton(
+                  tooltip: 'Notifications',
+                  onPressed: () {},
+                  icon: const Icon(Icons.notifications, color: Colors.white),
+                ),
+              ],
+            ),
+          ),
         ),
-      ],
+      ),
     );
   }
 
-  // ----------------- PROFILE -----------------
-  Widget _buildDriverProfile() {
+  Widget _buildDriverProfileCard() {
     return Row(
       children: [
-        CircleAvatar(
-          radius: 35,
-          backgroundColor: _primaryEnd,
-          child: const Icon(Icons.person, color: Colors.white, size: 36),
+        Stack(
+          alignment: Alignment.center,
+          children: [
+            ScaleTransition(
+              scale: Tween(begin: 1.0, end: 1.12).animate(
+                CurvedAnimation(
+                  parent: _pulseController,
+                  curve: Curves.easeInOut,
+                ),
+              ),
+              child: Container(
+                width: 74,
+                height: 74,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  gradient: const RadialGradient(
+                    colors: [_primaryStart, _primaryEnd],
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: _primaryStart.withAlpha((0.20 * 255).round()),
+                      blurRadius: 12,
+                      offset: const Offset(0, 6),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            CircleAvatar(
+              radius: 30,
+              backgroundColor: _primaryEnd,
+              backgroundImage: _driverPhotoUrl.isNotEmpty
+                  ? NetworkImage(_driverPhotoUrl)
+                  : null,
+              child: _driverPhotoUrl.isEmpty
+                  ? Text(
+                      _driverName.isNotEmpty
+                          ? _driverName.substring(0, 2).toUpperCase()
+                          : 'JD',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 18,
+                      ),
+                    )
+                  : null,
+            ),
+          ],
         ),
-        const SizedBox(width: 12),
+        const SizedBox(width: 14),
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
-            children: const [
-              Text('Welcome back,', style: TextStyle(color: Colors.grey)),
-              Text(
-                'John Doe',
-                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+            children: [
+              const Text(
+                'Welcome back,',
+                style: TextStyle(fontSize: 14, color: Colors.grey),
               ),
+              const SizedBox(height: 4),
               Text(
-                'Vehicle: Bus #12 • License: ABC123',
+                _driverName.isNotEmpty ? _driverName : 'John Doe',
+                style: const TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                ),
+                overflow: TextOverflow.ellipsis,
+              ),
+              const SizedBox(height: 6),
+              const Text(
+                'Bus #12 • License ABC123',
                 style: TextStyle(color: Colors.grey, fontSize: 12),
               ),
             ],
           ),
         ),
-        IconButton(onPressed: () {}, icon: const Icon(Icons.edit)),
+        IconButton(
+          tooltip: 'Profile',
+          onPressed: () => setState(() => _showDriverProfile = true),
+          icon: const Icon(Icons.person_outline),
+        ),
       ],
     );
   }
 
-  // ----------------- QUICK STATS -----------------
   Widget _buildQuickStats() {
     Widget statItem(String title, String value, IconData icon, Color color) {
       return Expanded(
@@ -218,9 +436,8 @@ class _DriverDashboardState extends State<DriverDashboard>
     );
   }
 
-  // ----------------- QUICK ACTIONS -----------------
   Widget _buildQuickActions() {
-    final List<Map<String, dynamic>> actions = [
+    final actions = [
       {'title': 'Start Trip', 'icon': Icons.play_arrow, 'color': Colors.green},
       {'title': 'End Trip', 'icon': Icons.stop, 'color': Colors.red},
       {'title': 'Mark Pickup', 'icon': Icons.location_on, 'color': Colors.blue},
@@ -236,6 +453,9 @@ class _DriverDashboardState extends State<DriverDashboard>
         separatorBuilder: (_, __) => const SizedBox(width: 12),
         itemBuilder: (context, i) {
           final item = actions[i];
+          final Color itemColor = item['color'] as Color;
+          final IconData itemIcon = item['icon'] as IconData;
+          final String itemTitle = item['title'] as String;
           return GestureDetector(
             onTap: () {},
             child: Container(
@@ -244,27 +464,29 @@ class _DriverDashboardState extends State<DriverDashboard>
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(16),
                 gradient: LinearGradient(
-                  colors: [item['color'].withOpacity(0.9), _accentSoft],
+                  colors: [
+                    itemColor.withAlpha((0.9 * 255).round()),
+                    _accentSoft,
+                  ],
                 ),
                 boxShadow: [
                   BoxShadow(
-                    color: item['color'].withOpacity(0.2),
+                    color: itemColor.withAlpha((0.2 * 255).round()),
                     blurRadius: 10,
                     offset: const Offset(0, 6),
                   ),
                 ],
               ),
               child: Column(
-                crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
                   CircleAvatar(
                     radius: 20,
-                    backgroundColor: item['color'].withOpacity(0.2),
-                    child: Icon(item['icon'], color: item['color']),
+                    backgroundColor: itemColor.withAlpha((0.2 * 255).round()),
+                    child: Icon(itemIcon, color: itemColor),
                   ),
                   const Spacer(),
                   Text(
-                    item['title'],
+                    itemTitle,
                     style: const TextStyle(fontWeight: FontWeight.bold),
                     textAlign: TextAlign.center,
                   ),
@@ -277,63 +499,39 @@ class _DriverDashboardState extends State<DriverDashboard>
     );
   }
 
-  // ----------------- LIVE TRIP -----------------
   Widget _buildLiveTripCard() {
     return Card(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
       child: Padding(
         padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+        child: Row(
           children: [
-            const Text(
-              'Current Trip',
-              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Route: Dormitory → Main Campus',
-              style: TextStyle(color: Colors.grey[700]),
-            ),
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                AnimatedBuilder(
-                  animation: _pulseController,
-                  builder: (context, child) {
-                    return Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 10,
-                        vertical: 6,
-                      ),
-                      decoration: BoxDecoration(
-                        color: _primaryEnd.withOpacity(
-                          0.12 * (1 + _pulseController.value),
-                        ),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Row(
-                        children: [
-                          const Icon(Icons.timer, size: 18),
-                          const SizedBox(width: 6),
-                          Text(
-                            '${_formatDuration(_currentTripTime)} min',
-                            style: const TextStyle(fontWeight: FontWeight.bold),
-                          ),
-                        ],
-                      ),
-                    );
-                  },
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: LinearProgressIndicator(
-                    value: 1 - (_currentTripTime.inSeconds / 720),
-                    backgroundColor: Colors.grey[200],
-                    valueColor: AlwaysStoppedAnimation<Color>(_primaryEnd),
+            AnimatedBuilder(
+              animation: _pulseController,
+              builder: (context, child) {
+                return Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 6,
                   ),
-                ),
-              ],
+                  decoration: BoxDecoration(
+                    color: _primaryEnd.withAlpha(
+                      ((0.12 * (1 + _pulseController.value)) * 255).round(),
+                    ),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.timer, size: 18),
+                      const SizedBox(width: 6),
+                      Text(
+                        _formatDuration(_currentTripTime),
+                        style: const TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                    ],
+                  ),
+                );
+              },
             ),
           ],
         ),
@@ -341,24 +539,44 @@ class _DriverDashboardState extends State<DriverDashboard>
     );
   }
 
-  // ----------------- EARNINGS -----------------
   Widget _buildEarningsCard() {
     return Card(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-      child: Padding(
+      child: const Padding(
+        padding: EdgeInsets.all(12),
+        child: Text(
+          'Earnings: \$452',
+          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildFloatingAlert() {
+    return Positioned(
+      bottom: 140,
+      left: 16,
+      right: 16,
+      child: Container(
         padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: const [
-            Text(
-              'Weekly Earnings',
-              style: TextStyle(fontWeight: FontWeight.bold),
+        decoration: BoxDecoration(
+          color: Colors.yellow[100],
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.yellow.shade700),
+        ),
+        child: Row(
+          children: [
+            const Icon(Icons.warning, color: Colors.orange),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                'You have a pending trip request!',
+                style: TextStyle(color: Colors.orange[800]),
+              ),
             ),
-            SizedBox(height: 8),
-            Text('Completed Trips: 15', style: TextStyle(color: Colors.grey)),
-            Text(
-              'Total: \$320',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            IconButton(
+              onPressed: () => setState(() => _showAlert = false),
+              icon: const Icon(Icons.close, color: Colors.orange),
             ),
           ],
         ),
@@ -366,44 +584,16 @@ class _DriverDashboardState extends State<DriverDashboard>
     );
   }
 
-  // ----------------- ALERT -----------------
-  Widget _buildFloatingAlert() {
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 400),
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: Colors.orangeAccent.withOpacity(0.12),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.orangeAccent.withOpacity(0.2)),
-      ),
-      child: Row(
-        children: [
-          const Icon(Icons.info_outline, color: Colors.orangeAccent),
-          const SizedBox(width: 8),
-          const Expanded(
-            child: Text('Traffic delay on Route 3. Adjust route!'),
-          ),
-          IconButton(
-            onPressed: () => setState(() => _showAlert = false),
-            icon: const Icon(Icons.close, size: 18),
-          ),
-        ],
-      ),
-    );
-  }
-
-  // ----------------- BOTTOM NAV -----------------
   Widget _buildBottomNav() {
     return BottomNavigationBar(
+      currentIndex: 0,
       selectedItemColor: _primaryStart,
       unselectedItemColor: Colors.grey[500],
+      onTap: (index) {
+        if (index == 1) setState(() => _showDriverProfile = true);
+      },
       items: const [
-        BottomNavigationBarItem(icon: Icon(Icons.home_filled), label: 'Home'),
-        BottomNavigationBarItem(
-          icon: Icon(Icons.directions_bus),
-          label: 'Trips',
-        ),
-        BottomNavigationBarItem(icon: Icon(Icons.wallet), label: 'Earnings'),
+        BottomNavigationBarItem(icon: Icon(Icons.home), label: 'Home'),
         BottomNavigationBarItem(
           icon: Icon(Icons.person_outline),
           label: 'Profile',
