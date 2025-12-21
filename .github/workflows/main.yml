@@ -4,7 +4,7 @@ on:
   push:
     branches:
       - main
-  workflow_dispatch:   # allows manual trigger
+  workflow_dispatch:
 
 jobs:
   build_apk:
@@ -18,17 +18,20 @@ jobs:
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.13.7' # set to your Flutter version
+          flutter-version: '3.13.7'
 
       - name: Install dependencies
         run: flutter pub get
+        # working-directory: app  # <-- uncomment if your Flutter project is in a subfolder
 
       - name: Build APK
         run: flutter build apk --release
+        # working-directory: app  # <-- uncomment if needed
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: app-release.apk
           path: build/app/outputs/flutter-apk/app-release.apk
+          # working-directory: app  # <-- uncomment if needed
 
