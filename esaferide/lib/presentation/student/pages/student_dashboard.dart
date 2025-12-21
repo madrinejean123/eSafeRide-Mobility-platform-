@@ -6,6 +6,8 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:esaferide/presentation/student/pages/student_profile.dart';
+import 'package:esaferide/presentation/student/pages/new_ride_page.dart';
+import 'package:geolocator/geolocator.dart';
 
 class StudentDashboard extends StatefulWidget {
   const StudentDashboard({super.key});
@@ -111,6 +113,79 @@ class _StudentDashboardState extends State<StudentDashboard>
     if (mounted) Navigator.of(context).pushReplacementNamed('/login');
   }
 
+  Future<void> _onNewRidePressed() async {
+    try {
+      bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Please enable location services to auto-fill pickup.',
+            ),
+          ),
+        );
+        Navigator.of(
+          context,
+        ).push(MaterialPageRoute(builder: (_) => const NewRidePage()));
+        return;
+      }
+
+      LocationPermission permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+        if (permission == LocationPermission.denied) {
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                'Location permission denied — you can enter pickup manually.',
+              ),
+            ),
+          );
+          Navigator.of(
+            context,
+          ).push(MaterialPageRoute(builder: (_) => const NewRidePage()));
+          return;
+        }
+      }
+      if (permission == LocationPermission.deniedForever) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Location permission denied permanently. Enable in settings.',
+            ),
+          ),
+        );
+        Navigator.of(
+          context,
+        ).push(MaterialPageRoute(builder: (_) => const NewRidePage()));
+        return;
+      }
+
+      final pos = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.best,
+      );
+      final gp = GeoPoint(pos.latitude, pos.longitude);
+      if (!mounted) return;
+      Navigator.of(
+        context,
+      ).push(MaterialPageRoute(builder: (_) => NewRidePage(initialPickup: gp)));
+    } catch (e) {
+      debugPrint('Location error: $e');
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Unable to fetch location — enter manually.'),
+        ),
+      );
+      Navigator.of(
+        context,
+      ).push(MaterialPageRoute(builder: (_) => const NewRidePage()));
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final themeBackground = _isDark
@@ -211,7 +286,7 @@ class _StudentDashboardState extends State<StudentDashboard>
         ],
       ),
       floatingActionButton: FloatingActionButton.extended(
-        onPressed: () {},
+        onPressed: _onNewRidePressed,
         label: const Text('New Ride'),
         icon: const Icon(Icons.add_location_alt),
         backgroundColor: _primaryEnd,

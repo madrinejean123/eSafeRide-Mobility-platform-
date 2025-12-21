@@ -3,6 +3,12 @@
         android:label="esaferide"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
+        <!-- Google Maps API key is provided via manifest placeholder to avoid
+             committing secrets. Set via environment variable
+             GOOGLE_MAPS_API_KEY or gradle property. -->
+        <meta-data
+            android:name="com.google.android.geo.API_KEY"
+            android:value="AIzaSyApNrcg8oYtgww7uJnMaMXYz7lgyvX5aNc" />
         <activity
             android:name=".MainActivity"
             android:exported="true"

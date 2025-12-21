@@ -1,4 +1,3 @@
-import 'dart:io';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/material.dart';
@@ -38,42 +37,99 @@ class _DriverProfileState extends State<DriverProfile> {
   final TextEditingController emergencyNameCtrl = TextEditingController();
   final TextEditingController emergencyPhoneCtrl = TextEditingController();
 
-  // ---- Upload files ----
-  File? idFile;
-  File? licenseFile;
-  File? profilePhoto;
-  File? motorcyclePhoto;
+  // ---- Upload files (store XFile from image_picker)
+  XFile? idFile;
+  XFile? licenseFile;
+  XFile? profilePhoto;
+  XFile? motorcyclePhoto;
+  // Stored URLs from Firestore for existing uploads
+  String? govIdUrl;
+  String? licenseUrl;
+  String? profilePhotoUrl;
+  String? motorcyclePhotoUrl;
 
   bool _isSaving = false;
 
   final ImagePicker _picker = ImagePicker();
 
-  Future<void> _pickFile(String type) async {
-    final XFile? picked = await _picker.pickImage(source: ImageSource.gallery);
-    if (picked == null) return;
-
-    setState(() {
-      switch (type) {
-        case 'id':
-          idFile = File(picked.path);
-          break;
-        case 'license':
-          licenseFile = File(picked.path);
-          break;
-        case 'profile':
-          profilePhoto = File(picked.path);
-          break;
-        case 'motorcycle':
-          motorcyclePhoto = File(picked.path);
-          break;
-      }
-    });
+  @override
+  void initState() {
+    super.initState();
+    _loadProfile();
   }
 
-  Future<String?> _uploadFile(File file, String path) async {
+  Future<void> _loadProfile() async {
+    try {
+      final doc = await FirebaseFirestore.instance
+          .collection('drivers')
+          .doc(widget.uid)
+          .get();
+
+      if (!mounted) return;
+      if (doc.exists && doc.data() != null) {
+        final data = doc.data()!;
+        setState(() {
+          fullNameCtrl.text = data['fullName'] ?? '';
+          phoneCtrl.text = data['phone'] ?? '';
+          emailCtrl.text = data['email'] ?? '';
+          addressCtrl.text = data['address'] ?? '';
+          govIdCtrl.text = data['govId'] ?? '';
+          licenseNoCtrl.text = data['licenseNo'] ?? '';
+          regNoCtrl.text = data['motorcycle']?['regNo'] ?? '';
+          makeModelCtrl.text = data['motorcycle']?['makeModel'] ?? '';
+          yearCtrl.text = data['motorcycle']?['year'] ?? '';
+          emergencyNameCtrl.text = data['emergencyContact']?['name'] ?? '';
+          emergencyPhoneCtrl.text = data['emergencyContact']?['phone'] ?? '';
+          govIdUrl = data['govIdUrl'] as String?;
+          licenseUrl = data['licenseUrl'] as String?;
+          profilePhotoUrl = data['profilePhotoUrl'] as String?;
+          motorcyclePhotoUrl = data['motorcycle']?['photoUrl'] as String?;
+        });
+      }
+    } catch (e) {
+      debugPrint('Error loading driver profile: $e');
+    }
+  }
+
+  // ---- Pick an image from gallery ----
+  Future<void> _pickFile(String type) async {
+    try {
+      final XFile? picked = await _picker.pickImage(
+        source: ImageSource.gallery,
+      );
+      if (picked == null) return;
+
+      setState(() {
+        switch (type) {
+          case 'id':
+            idFile = picked;
+            break;
+          case 'license':
+            licenseFile = picked;
+            break;
+          case 'profile':
+            profilePhoto = picked;
+            break;
+          case 'motorcycle':
+            motorcyclePhoto = picked;
+            break;
+        }
+      });
+    } catch (e) {
+      debugPrint('Error picking file: $e');
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Failed to pick file')));
+    }
+  }
+
+  // ---- Upload a file to Firebase Storage ----
+  Future<String?> _uploadFile(XFile file, String path) async {
     try {
       final ref = FirebaseStorage.instance.ref().child(path);
-      await ref.putFile(file);
+      final bytes = await file.readAsBytes();
+      await ref.putData(bytes);
       return await ref.getDownloadURL();
     } catch (e) {
       debugPrint('Upload error: $e');
@@ -81,6 +137,7 @@ class _DriverProfileState extends State<DriverProfile> {
     }
   }
 
+  // ---- Save profile to Firestore ----
   Future<void> _saveProfile() async {
     if (!_formKey.currentState!.validate()) return;
 
@@ -103,33 +160,52 @@ class _DriverProfileState extends State<DriverProfile> {
           )
         : null;
 
-    // Save Firestore data
-    await FirebaseFirestore.instance.collection('drivers').doc(widget.uid).set({
+    // Build Firestore data
+    final data = {
       'fullName': fullNameCtrl.text.trim(),
       'phone': phoneCtrl.text.trim(),
       'email': emailCtrl.text.trim(),
       'address': addressCtrl.text.trim(),
       'govId': govIdCtrl.text.trim(),
-      'govIdUrl': idUrl,
+      if (idUrl != null) 'govIdUrl': idUrl,
       'licenseNo': licenseNoCtrl.text.trim(),
-      'licenseUrl': licenseUrl,
-      'profilePhotoUrl': profileUrl,
+      if (licenseUrl != null) 'licenseUrl': licenseUrl,
+      if (profileUrl != null) 'profilePhotoUrl': profileUrl,
       'motorcycle': {
         'regNo': regNoCtrl.text.trim(),
         'makeModel': makeModelCtrl.text.trim(),
         'year': yearCtrl.text.trim(),
-        'photoUrl': motorcycleUrl,
+        if (motorcycleUrl != null) 'photoUrl': motorcycleUrl,
       },
       'emergencyContact': {
         'name': emergencyNameCtrl.text.trim(),
         'phone': emergencyPhoneCtrl.text.trim(),
       },
       'createdAt': FieldValue.serverTimestamp(),
-    });
+    };
 
-    setState(() => _isSaving = false);
+    try {
+      await FirebaseFirestore.instance
+          .collection('drivers')
+          .doc(widget.uid)
+          .set(data, SetOptions(merge: true));
 
-    widget.onSave();
+      if (!mounted) return;
+      setState(() => _isSaving = false);
+
+      // Notify user and close overlay
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Profile saved successfully')),
+      );
+      widget.onSave();
+    } catch (e) {
+      debugPrint('Error saving profile: $e');
+      if (!mounted) return;
+      setState(() => _isSaving = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Failed to save profile. Try again.')),
+      );
+    }
   }
 
   @override
@@ -173,7 +249,6 @@ class _DriverProfileState extends State<DriverProfile> {
                         'This helps us verify you and provide safe rides for students.',
                         style: TextStyle(color: Colors.grey, fontSize: 13),
                       ),
-
                       const SizedBox(height: 16),
 
                       _sectionTitle('Personal Information'),
@@ -191,7 +266,6 @@ class _DriverProfileState extends State<DriverProfile> {
                       _inputField('Address (Optional)', addressCtrl),
 
                       const SizedBox(height: 12),
-
                       _sectionTitle('Verification'),
                       _inputField('Government ID Number', govIdCtrl),
                       _uploadField('Upload ID Document', 'id'),
@@ -200,7 +274,6 @@ class _DriverProfileState extends State<DriverProfile> {
                       _uploadField('Profile Photo', 'profile'),
 
                       const SizedBox(height: 12),
-
                       _sectionTitle('Motorcycle Details'),
                       _inputField('Registration Number', regNoCtrl),
                       _inputField('Make & Model', makeModelCtrl),
@@ -208,7 +281,6 @@ class _DriverProfileState extends State<DriverProfile> {
                       _uploadField('Motorcycle Photo', 'motorcycle'),
 
                       const SizedBox(height: 12),
-
                       _sectionTitle('Emergency Contact'),
                       _inputField('Contact Name', emergencyNameCtrl),
                       _inputField(
@@ -218,12 +290,15 @@ class _DriverProfileState extends State<DriverProfile> {
                       ),
 
                       const SizedBox(height: 18),
-
                       Row(
                         children: [
                           Expanded(
                             child: ElevatedButton(
-                              onPressed: _isSaving ? null : _saveProfile,
+                              onPressed: _isSaving
+                                  ? null
+                                  : () async {
+                                      await _saveProfile();
+                                    },
                               style: ElevatedButton.styleFrom(
                                 padding: const EdgeInsets.symmetric(
                                   vertical: 14,
@@ -233,8 +308,13 @@ class _DriverProfileState extends State<DriverProfile> {
                                 ),
                               ),
                               child: _isSaving
-                                  ? const CircularProgressIndicator(
-                                      color: Colors.white,
+                                  ? const SizedBox(
+                                      height: 20,
+                                      width: 20,
+                                      child: CircularProgressIndicator(
+                                        color: Colors.white,
+                                        strokeWidth: 2,
+                                      ),
                                     )
                                   : const Text(
                                       'Save & Continue',
@@ -247,9 +327,7 @@ class _DriverProfileState extends State<DriverProfile> {
                           ),
                         ],
                       ),
-
                       const SizedBox(height: 8),
-
                       Center(
                         child: TextButton(
                           onPressed: widget.onSkip,
@@ -291,7 +369,10 @@ class _DriverProfileState extends State<DriverProfile> {
       child: TextFormField(
         controller: controller,
         keyboardType: keyboard,
-        validator: (v) => v == null || v.isEmpty ? 'Required' : null,
+        // Allow empty values and save whatever the user provided (mirrors
+        // StudentProfile behavior). Validation was blocking saves when fields
+        // were left empty.
+        validator: null,
         decoration: InputDecoration(
           hintText: hint,
           filled: true,
@@ -310,7 +391,7 @@ class _DriverProfileState extends State<DriverProfile> {
   }
 
   Widget _uploadField(String label, String type) {
-    File? file;
+    XFile? file;
     switch (type) {
       case 'id':
         file = idFile;
@@ -341,14 +422,77 @@ class _DriverProfileState extends State<DriverProfile> {
             children: [
               const Icon(Icons.upload_file, color: Colors.grey),
               const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  file != null ? 'Selected File' : label,
-                  style: TextStyle(
-                    color: file != null ? Colors.black : Colors.grey,
+              if (file != null)
+                Expanded(
+                  child: Text(
+                    'Selected File',
+                    style: const TextStyle(color: Colors.black),
                   ),
+                )
+              else if (type == 'profile' && profilePhotoUrl != null)
+                Expanded(
+                  child: Row(
+                    children: [
+                      Image.network(
+                        profilePhotoUrl!,
+                        width: 48,
+                        height: 48,
+                        fit: BoxFit.cover,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(child: Text(label)),
+                    ],
+                  ),
+                )
+              else if (type == 'motorcycle' && motorcyclePhotoUrl != null)
+                Expanded(
+                  child: Row(
+                    children: [
+                      Image.network(
+                        motorcyclePhotoUrl!,
+                        width: 48,
+                        height: 48,
+                        fit: BoxFit.cover,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(child: Text(label)),
+                    ],
+                  ),
+                )
+              else if (type == 'id' && govIdUrl != null)
+                Expanded(
+                  child: Row(
+                    children: [
+                      Image.network(
+                        govIdUrl!,
+                        width: 48,
+                        height: 48,
+                        fit: BoxFit.cover,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(child: Text(label)),
+                    ],
+                  ),
+                )
+              else if (type == 'license' && licenseUrl != null)
+                Expanded(
+                  child: Row(
+                    children: [
+                      Image.network(
+                        licenseUrl!,
+                        width: 48,
+                        height: 48,
+                        fit: BoxFit.cover,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(child: Text(label)),
+                    ],
+                  ),
+                )
+              else
+                Expanded(
+                  child: Text(label, style: TextStyle(color: Colors.grey[600])),
                 ),
-              ),
               const Icon(Icons.arrow_forward_ios, size: 16, color: Colors.grey),
             ],
           ),

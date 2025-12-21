@@ -1,14 +1,17 @@
 import 'dart:async';
-import 'dart:io';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_storage/firebase_storage.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:esaferide/config/routes.dart';
+import 'package:esaferide/presentation/auth/login_page.dart';
 import 'package:esaferide/presentation/driver/pages/driver_profile.dart';
+import '../../../data/services/ride_service.dart';
+import '../../../data/services/location_updater.dart';
+import '../../../data/services/geocode_service_io.dart';
+import 'available_rides_page.dart';
 
 class DriverDashboard extends StatefulWidget {
-  final String uid;
-  const DriverDashboard({super.key, required this.uid});
+  const DriverDashboard({super.key});
 
   @override
   State<DriverDashboard> createState() => _DriverDashboardState();
@@ -16,6 +19,7 @@ class DriverDashboard extends StatefulWidget {
 
 class _DriverDashboardState extends State<DriverDashboard>
     with SingleTickerProviderStateMixin {
+  late final String uid;
   bool _isDark = false;
   late final AnimationController _pulseController;
   Timer? _tripTimer;
@@ -23,23 +27,18 @@ class _DriverDashboardState extends State<DriverDashboard>
 
   // Overlay & profile
   bool _showDriverProfile = false;
-  // tracked when profile is saved; not used in UI currently
 
   // Driver info
   String _driverName = '';
   String _driverPhotoUrl = '';
 
-  // Image picking
-  // ImagePicker is used inside DriverProfile; dashboard does not pick images directly
-  File? idFile, licenseFile, profilePhoto, motorcyclePhoto;
-
-  // Colors
-  static const Color _primaryStart = Color(0xFF3E71DF);
-  static const Color _primaryEnd = Color(0xFF00BFA5);
-  static const Color _accentSoft = Color(0xFFEEF6FF);
+  // Ride notifications
+  List<QueryDocumentSnapshot> _pendingRides = [];
+  StreamSubscription<QuerySnapshot>? _ridesSub;
+  LocationUpdater? _updater;
+  final Map<String, String> _rideAddressCache = {};
 
   // Form controllers
-  final _formKey = GlobalKey<FormState>();
   final TextEditingController fullNameCtrl = TextEditingController();
   final TextEditingController phoneCtrl = TextEditingController();
   final TextEditingController emailCtrl = TextEditingController();
@@ -52,12 +51,23 @@ class _DriverDashboardState extends State<DriverDashboard>
   final TextEditingController emergencyNameCtrl = TextEditingController();
   final TextEditingController emergencyPhoneCtrl = TextEditingController();
 
-  // local saving flag handled inside DriverProfile; not used here
   bool _showAlert = true;
 
   @override
   void initState() {
     super.initState();
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (_) => const LoginPage()),
+        );
+      });
+      return;
+    }
+
+    uid = user.uid.trim();
     _pulseController = AnimationController(
       vsync: this,
       duration: const Duration(seconds: 2),
@@ -65,15 +75,26 @@ class _DriverDashboardState extends State<DriverDashboard>
 
     _startTripCountdown();
     _checkProfileCompletion();
+    _listenToPendingRides();
+  }
+
+  @override
+  void dispose() {
+    _pulseController.dispose();
+    _tripTimer?.cancel();
+    _ridesSub?.cancel();
+    _updater?.stop();
+    super.dispose();
   }
 
   // -------------------- PROFILE LOGIC --------------------
   Future<void> _checkProfileCompletion() async {
+    if (uid.isEmpty) return;
+
     final doc = await FirebaseFirestore.instance
         .collection('drivers')
-        .doc(widget.uid)
+        .doc(uid)
         .get();
-
     if (!doc.exists || doc.data() == null) {
       setState(() => _showDriverProfile = true);
     } else {
@@ -97,70 +118,6 @@ class _DriverDashboardState extends State<DriverDashboard>
     }
   }
 
-  Future<void> _saveProfile() async {
-    if (!_formKey.currentState!.validate()) return;
-
-    // show saving handled by the overlay form; dashboard doesn't track _isSaving now
-
-    String? idUrl = idFile != null
-        ? await _uploadFile(idFile!, 'drivers/${widget.uid}/id.jpg')
-        : null;
-    String? licenseUrl = licenseFile != null
-        ? await _uploadFile(licenseFile!, 'drivers/${widget.uid}/license.jpg')
-        : null;
-    String? profileUrl = profilePhoto != null
-        ? await _uploadFile(profilePhoto!, 'drivers/${widget.uid}/profile.jpg')
-        : null;
-    String? motorcycleUrl = motorcyclePhoto != null
-        ? await _uploadFile(
-            motorcyclePhoto!,
-            'drivers/${widget.uid}/motorcycle.jpg',
-          )
-        : null;
-
-    await FirebaseFirestore.instance.collection('drivers').doc(widget.uid).set({
-      'fullName': fullNameCtrl.text.trim(),
-      'phone': phoneCtrl.text.trim(),
-      'email': emailCtrl.text.trim(),
-      'address': addressCtrl.text.trim(),
-      'govId': govIdCtrl.text.trim(),
-      'govIdUrl': idUrl,
-      'licenseNo': licenseNoCtrl.text.trim(),
-      'licenseUrl': licenseUrl,
-      'profilePhotoUrl': profileUrl,
-      'motorcycle': {
-        'regNo': regNoCtrl.text.trim(),
-        'makeModel': makeModelCtrl.text.trim(),
-        'year': yearCtrl.text.trim(),
-        'photoUrl': motorcycleUrl,
-      },
-      'emergencyContact': {
-        'name': emergencyNameCtrl.text.trim(),
-        'phone': emergencyPhoneCtrl.text.trim(),
-      },
-      'createdAt': FieldValue.serverTimestamp(),
-    });
-
-    setState(() {
-      _showDriverProfile = false;
-      _driverName = fullNameCtrl.text;
-      _driverPhotoUrl = profileUrl ?? '';
-    });
-  }
-
-  Future<String?> _uploadFile(File file, String path) async {
-    try {
-      final ref = FirebaseStorage.instance.ref().child(path);
-      await ref.putFile(file);
-      return await ref.getDownloadURL();
-    } catch (e) {
-      debugPrint('Upload error: $e');
-      return null;
-    }
-  }
-
-  // File picking is handled by `DriverProfile` widget; dashboard no longer needs _pickFile
-
   // -------------------- TRIP COUNTDOWN --------------------
   void _startTripCountdown() {
     _tripTimer?.cancel();
@@ -181,11 +138,75 @@ class _DriverDashboardState extends State<DriverDashboard>
     return '$minutes:$seconds';
   }
 
-  @override
-  void dispose() {
-    _pulseController.dispose();
-    _tripTimer?.cancel();
-    super.dispose();
+  // -------------------- RIDE NOTIFICATIONS --------------------
+  void _listenToPendingRides() {
+    _ridesSub = RideService().listenToPendingRides().listen((snapshot) {
+      setState(() {
+        _pendingRides = snapshot.docs;
+        _showAlert = _pendingRides.isNotEmpty;
+      });
+
+      // For each pending ride, attempt to resolve pickup/destination labels
+      for (final rideDoc in snapshot.docs) {
+        final data = rideDoc.data() as Map<String, dynamic>;
+        final pickup = data['pickup'] as GeoPoint?;
+        final dest = data['destination'] as GeoPoint?;
+        final pickupKey = '${rideDoc.id}_pickup';
+        final destKey = '${rideDoc.id}_dest';
+
+        if (pickup != null && !_rideAddressCache.containsKey(pickupKey)) {
+          resolveLabel(pickup.latitude, pickup.longitude).then((label) {
+            final resolved = (label == null || label.isEmpty)
+                ? '${pickup.latitude},${pickup.longitude}'
+                : label;
+            if (mounted) {
+              setState(() {
+                _rideAddressCache[pickupKey] = resolved;
+              });
+            }
+          });
+        }
+
+        if (dest != null && !_rideAddressCache.containsKey(destKey)) {
+          resolveLabel(dest.latitude, dest.longitude).then((label) {
+            final resolved = (label == null || label.isEmpty)
+                ? '${dest.latitude},${dest.longitude}'
+                : label;
+            if (mounted) {
+              setState(() {
+                _rideAddressCache[destKey] = resolved;
+              });
+            }
+          });
+        }
+      }
+    });
+  }
+
+  Future<void> _acceptRide(String rideId) async {
+    final ok = await RideService().acceptRide(rideId: rideId, driverId: uid);
+    if (ok) {
+      _updater?.stop();
+      _updater = LocationUpdater(rideId: rideId);
+      await _updater?.start();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Ride accepted. Sharing location...')),
+      );
+    } else {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Ride already taken')));
+    }
+  }
+
+  Future<void> _rejectRide(String rideId) async {
+    await RideService().rejectRide(rideId: rideId, driverId: '');
+    if (!mounted) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('Ride rejected')));
   }
 
   // -------------------- UI --------------------
@@ -216,17 +237,17 @@ class _DriverDashboardState extends State<DriverDashboard>
                   const SizedBox(height: 18),
                   _buildEarningsCard(),
                   const SizedBox(height: 18),
+                  _buildViewAvailableRidesButton(),
                 ],
               ),
             ),
           ),
-          if (_showAlert) _buildFloatingAlert(),
+          if (_showAlert && _pendingRides.isNotEmpty) _buildRideNotifications(),
 
-          // Overlay for DriverProfile
           if (_showDriverProfile)
             DriverProfile(
-              uid: widget.uid,
-              onSave: _saveProfile,
+              uid: uid,
+              onSave: () => setState(() => _showDriverProfile = false),
               onSkip: () => setState(() => _showDriverProfile = false),
             ),
         ],
@@ -241,13 +262,14 @@ class _DriverDashboardState extends State<DriverDashboard>
     );
   }
 
+  // -------------------- APP BAR --------------------
   PreferredSizeWidget _buildAppBar() {
     return PreferredSize(
       preferredSize: const Size.fromHeight(70),
       child: Container(
         decoration: BoxDecoration(
           gradient: const LinearGradient(
-            colors: [_primaryStart, _primaryEnd],
+            colors: [Color(0xFF3E71DF), Color(0xFF00BFA5)],
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
           ),
@@ -307,6 +329,7 @@ class _DriverDashboardState extends State<DriverDashboard>
     );
   }
 
+  // -------------------- DRIVER CARDS --------------------
   Widget _buildDriverProfileCard() {
     return Row(
       children: [
@@ -326,11 +349,11 @@ class _DriverDashboardState extends State<DriverDashboard>
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
                   gradient: const RadialGradient(
-                    colors: [_primaryStart, _primaryEnd],
+                    colors: [Color(0xFF3E71DF), Color(0xFF00BFA5)],
                   ),
                   boxShadow: [
                     BoxShadow(
-                      color: _primaryStart.withAlpha((0.20 * 255).round()),
+                      color: Colors.blue.withAlpha((0.20 * 255).round()),
                       blurRadius: 12,
                       offset: const Offset(0, 6),
                     ),
@@ -340,7 +363,7 @@ class _DriverDashboardState extends State<DriverDashboard>
             ),
             CircleAvatar(
               radius: 30,
-              backgroundColor: _primaryEnd,
+              backgroundColor: const Color(0xFF00BFA5),
               backgroundImage: _driverPhotoUrl.isNotEmpty
                   ? NetworkImage(_driverPhotoUrl)
                   : null,
@@ -379,7 +402,7 @@ class _DriverDashboardState extends State<DriverDashboard>
               ),
               const SizedBox(height: 6),
               const Text(
-                'Bus #12 • License ABC123',
+                'Motorbyk #12 • License ABC123',
                 style: TextStyle(color: Colors.grey, fontSize: 12),
               ),
             ],
@@ -427,7 +450,7 @@ class _DriverDashboardState extends State<DriverDashboard>
 
     return Row(
       children: [
-        statItem('Active Trips', '2', Icons.directions_bus, _primaryStart),
+        statItem('Active Trips', '2', Icons.directions_bus, Colors.blue),
         const SizedBox(width: 8),
         statItem('Earnings', '\$124', Icons.attach_money, Colors.green),
         const SizedBox(width: 8),
@@ -466,7 +489,7 @@ class _DriverDashboardState extends State<DriverDashboard>
                 gradient: LinearGradient(
                   colors: [
                     itemColor.withAlpha((0.9 * 255).round()),
-                    _accentSoft,
+                    Colors.white,
                   ],
                 ),
                 boxShadow: [
@@ -515,7 +538,7 @@ class _DriverDashboardState extends State<DriverDashboard>
                     vertical: 6,
                   ),
                   decoration: BoxDecoration(
-                    color: _primaryEnd.withAlpha(
+                    color: Colors.green.withAlpha(
                       ((0.12 * (1 + _pulseController.value)) * 255).round(),
                     ),
                     borderRadius: BorderRadius.circular(8),
@@ -552,7 +575,21 @@ class _DriverDashboardState extends State<DriverDashboard>
     );
   }
 
-  Widget _buildFloatingAlert() {
+  Widget _buildViewAvailableRidesButton() {
+    return ElevatedButton.icon(
+      onPressed: () {
+        Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => const AvailableRidesPage()),
+        );
+      },
+      icon: const Icon(Icons.directions_car),
+      label: const Text('View All Available Rides'),
+    );
+  }
+
+  // -------------------- RIDE ALERT --------------------
+  Widget _buildRideNotifications() {
     return Positioned(
       bottom: 140,
       left: 16,
@@ -564,20 +601,67 @@ class _DriverDashboardState extends State<DriverDashboard>
           borderRadius: BorderRadius.circular(12),
           border: Border.all(color: Colors.yellow.shade700),
         ),
-        child: Row(
+        child: Column(
           children: [
-            const Icon(Icons.warning, color: Colors.orange),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Text(
-                'You have a pending trip request!',
-                style: TextStyle(color: Colors.orange[800]),
-              ),
+            Row(
+              children: [
+                const Icon(Icons.warning, color: Colors.orange),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'You have ${_pendingRides.length} pending ride request(s)!',
+                    style: TextStyle(color: Colors.orange[800]),
+                  ),
+                ),
+                IconButton(
+                  onPressed: () => setState(() => _showAlert = false),
+                  icon: const Icon(Icons.close, color: Colors.orange),
+                ),
+              ],
             ),
-            IconButton(
-              onPressed: () => setState(() => _showAlert = false),
-              icon: const Icon(Icons.close, color: Colors.orange),
-            ),
+            const Divider(),
+            ..._pendingRides.map((ride) {
+              final rideId = ride.id;
+              final data = ride.data() as Map<String, dynamic>;
+              final pickup = data['pickup'] as GeoPoint?;
+              final dest = data['destination'] as GeoPoint?;
+              final pickupKey = '${rideId}_pickup';
+              final destKey = '${rideId}_dest';
+
+              final pickupLabel =
+                  _rideAddressCache[pickupKey] ??
+                  (pickup != null
+                      ? '${pickup.latitude},${pickup.longitude}'
+                      : 'Unknown');
+              final destLabel =
+                  _rideAddressCache[destKey] ??
+                  (dest != null
+                      ? '${dest.latitude},${dest.longitude}'
+                      : 'Unknown');
+
+              return Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Expanded(
+                    child: Text('Ride $rideId: $pickupLabel → $destLabel'),
+                  ),
+                  TextButton(
+                    onPressed: () => _acceptRide(rideId),
+                    child: const Text(
+                      'Accept',
+                      style: TextStyle(color: Colors.green),
+                    ),
+                  ),
+                  TextButton(
+                    onPressed: () => _rejectRide(rideId),
+                    child: const Text(
+                      'Reject',
+                      style: TextStyle(color: Colors.red),
+                    ),
+                  ),
+                ],
+              );
+            }),
           ],
         ),
       ),
@@ -587,7 +671,7 @@ class _DriverDashboardState extends State<DriverDashboard>
   Widget _buildBottomNav() {
     return BottomNavigationBar(
       currentIndex: 0,
-      selectedItemColor: _primaryStart,
+      selectedItemColor: const Color(0xFF3E71DF),
       unselectedItemColor: Colors.grey[500],
       onTap: (index) {
         if (index == 1) setState(() => _showDriverProfile = true);
