@@ -22,16 +22,14 @@ jobs:
 
       - name: Install dependencies
         run: flutter pub get
-        # working-directory: app  # <-- uncomment if your Flutter project is in a subfolder
+        working-directory: esaferide   # <-- change to your Flutter project folder
 
       - name: Build APK
         run: flutter build apk --release
-        # working-directory: app  # <-- uncomment if needed
+        working-directory: new_app
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: app-release.apk
-          path: build/app/outputs/flutter-apk/app-release.apk
-          # working-directory: app  # <-- uncomment if needed
-
+          path: new_app/build/app/outputs/flutter-apk/app-release.apk
