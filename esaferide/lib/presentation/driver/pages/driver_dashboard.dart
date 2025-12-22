@@ -10,6 +10,19 @@ import '../../../data/services/location_updater.dart';
 import '../../../data/services/geocode_service_io.dart';
 import 'available_rides_page.dart';
 
+// Cache TTL for resolved addresses
+const Duration _kAddressCacheTtl = Duration(hours: 6);
+
+class _AddressCacheEntry {
+  String? label; // null means resolution pending
+  DateTime fetchedAt;
+
+  _AddressCacheEntry({this.label, required this.fetchedAt});
+
+  bool get isExpired =>
+      DateTime.now().difference(fetchedAt) > _kAddressCacheTtl;
+}
+
 class DriverDashboard extends StatefulWidget {
   const DriverDashboard({super.key});
 
@@ -36,7 +49,7 @@ class _DriverDashboardState extends State<DriverDashboard>
   List<QueryDocumentSnapshot> _pendingRides = [];
   StreamSubscription<QuerySnapshot>? _ridesSub;
   LocationUpdater? _updater;
-  final Map<String, String> _rideAddressCache = {};
+  final Map<String, _AddressCacheEntry> _rideAddressCache = {};
 
   // Form controllers
   final TextEditingController fullNameCtrl = TextEditingController();
@@ -154,30 +167,48 @@ class _DriverDashboardState extends State<DriverDashboard>
         final pickupKey = '${rideDoc.id}_pickup';
         final destKey = '${rideDoc.id}_dest';
 
-        if (pickup != null && !_rideAddressCache.containsKey(pickupKey)) {
-          resolveLabel(pickup.latitude, pickup.longitude).then((label) {
-            final resolved = (label == null || label.isEmpty)
-                ? '${pickup.latitude},${pickup.longitude}'
-                : label;
-            if (mounted) {
-              setState(() {
-                _rideAddressCache[pickupKey] = resolved;
-              });
-            }
+        // helper to start resolution if needed
+        Future<void> maybeResolve(GeoPoint gp, String key) async {
+          final existing = _rideAddressCache[key];
+          // If we have an entry and it's pending (label==null), skip.
+          if (existing != null &&
+              existing.label == null &&
+              !existing.isExpired) {
+            return;
+          }
+          // Mark pending immediately to avoid duplicate requests
+          _rideAddressCache[key] = _AddressCacheEntry(
+            label: null,
+            fetchedAt: DateTime.now(),
+          );
+          final label = await resolveLabel(gp.latitude, gp.longitude);
+          final resolved = (label == null || label.isEmpty)
+              ? '${gp.latitude},${gp.longitude}'
+              : label;
+          if (!mounted) {
+            return;
+          }
+          setState(() {
+            _rideAddressCache[key] = _AddressCacheEntry(
+              label: resolved,
+              fetchedAt: DateTime.now(),
+            );
           });
         }
 
-        if (dest != null && !_rideAddressCache.containsKey(destKey)) {
-          resolveLabel(dest.latitude, dest.longitude).then((label) {
-            final resolved = (label == null || label.isEmpty)
-                ? '${dest.latitude},${dest.longitude}'
-                : label;
-            if (mounted) {
-              setState(() {
-                _rideAddressCache[destKey] = resolved;
-              });
-            }
-          });
+        if (pickup != null) {
+          final entry = _rideAddressCache[pickupKey];
+          if (entry == null || entry.isExpired) {
+            // start resolution but do not await here
+            maybeResolve(pickup, pickupKey);
+          }
+        }
+
+        if (dest != null) {
+          final entry = _rideAddressCache[destKey];
+          if (entry == null || entry.isExpired) {
+            maybeResolve(dest, destKey);
+          }
         }
       }
     });
@@ -628,22 +659,89 @@ class _DriverDashboardState extends State<DriverDashboard>
               final pickupKey = '${rideId}_pickup';
               final destKey = '${rideId}_dest';
 
-              final pickupLabel =
-                  _rideAddressCache[pickupKey] ??
-                  (pickup != null
-                      ? '${pickup.latitude},${pickup.longitude}'
-                      : 'Unknown');
-              final destLabel =
-                  _rideAddressCache[destKey] ??
-                  (dest != null
-                      ? '${dest.latitude},${dest.longitude}'
-                      : 'Unknown');
-
               return Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Expanded(
-                    child: Text('Ride $rideId: $pickupLabel → $destLabel'),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Ride $rideId',
+                          style: const TextStyle(fontWeight: FontWeight.bold),
+                        ),
+                        const SizedBox(height: 6),
+                        Row(
+                          children: [
+                            // Pickup label / resolving indicator
+                            Expanded(
+                              child: Builder(
+                                builder: (context) {
+                                  final entry = _rideAddressCache[pickupKey];
+                                  if (entry == null) {
+                                    return Text(
+                                      pickup != null
+                                          ? '${pickup.latitude},${pickup.longitude}'
+                                          : 'Unknown',
+                                    );
+                                  }
+                                  if (entry.label == null) {
+                                    return Row(
+                                      children: const [
+                                        SizedBox(
+                                          width: 14,
+                                          height: 14,
+                                          child: CircularProgressIndicator(
+                                            strokeWidth: 2,
+                                          ),
+                                        ),
+                                        SizedBox(width: 8),
+                                        Text('Resolving pickup...'),
+                                      ],
+                                    );
+                                  }
+                                  return Text(entry.label!);
+                                },
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            const Text('→'),
+                            const SizedBox(width: 8),
+                            // Destination label / resolving indicator
+                            Expanded(
+                              child: Builder(
+                                builder: (context) {
+                                  final entry = _rideAddressCache[destKey];
+                                  if (entry == null) {
+                                    return Text(
+                                      dest != null
+                                          ? '${dest.latitude},${dest.longitude}'
+                                          : 'Unknown',
+                                    );
+                                  }
+                                  if (entry.label == null) {
+                                    return Row(
+                                      children: const [
+                                        SizedBox(
+                                          width: 14,
+                                          height: 14,
+                                          child: CircularProgressIndicator(
+                                            strokeWidth: 2,
+                                          ),
+                                        ),
+                                        SizedBox(width: 8),
+                                        Text('Resolving dest...'),
+                                      ],
+                                    );
+                                  }
+                                  return Text(entry.label!);
+                                },
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
                   ),
                   TextButton(
                     onPressed: () => _acceptRide(rideId),

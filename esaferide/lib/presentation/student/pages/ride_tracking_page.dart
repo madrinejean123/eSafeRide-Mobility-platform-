@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math';
 // 'dart:math' was unused and removed to satisfy lints
 
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -28,13 +29,22 @@ class _RideTrackingPageState extends State<RideTrackingPage> {
   Marker? _pickupMarker;
   Marker? _destinationMarker;
   Polyline? _routePolyline;
+  Polyline? _driverToPickupPolyline;
   LatLng? _lastDriverLatLng;
   StreamSubscription<DocumentSnapshot>? _sub;
+  DateTime? _lastDriverRouteFetch;
+  static const Duration _driverRouteThrottle = Duration(seconds: 8);
 
   String _status = 'pending';
   String? _driverId;
   String? _pickupLabel;
   String? _destinationLabel;
+
+  // ETA / distance info
+  int? _routeDurationSeconds;
+  int? _routeDistanceMeters;
+  int? _driverEtaSeconds;
+  int? _driverDistanceToPickupMeters;
 
   LatLng? _pickupLatLng;
   LatLng? _destinationLatLng;
@@ -122,7 +132,18 @@ class _RideTrackingPageState extends State<RideTrackingPage> {
           (driverLoc['lat'] as num).toDouble(),
           (driverLoc['lng'] as num).toDouble(),
         );
+        debugPrint('RideTracking: received driverLocation $newPos');
         _animateDriverTo(newPos);
+        // Also update the driver->pickup route so rider can see where driver is heading
+        // throttle frequent directions calls
+        if (_lastDriverRouteFetch == null ||
+            DateTime.now().difference(_lastDriverRouteFetch!) >=
+                _driverRouteThrottle) {
+          _lastDriverRouteFetch = DateTime.now();
+          _updateDriverRoute(newPos);
+        }
+        // ensure driver is visible on map
+        _fitMapToIncludeDriver(newPos);
       }
     });
   }
@@ -179,46 +200,88 @@ class _RideTrackingPageState extends State<RideTrackingPage> {
 
   Future<void> _updateRoute() async {
     if (_pickupLatLng == null || _destinationLatLng == null) return;
-
-    final polylinePoints = await _getDirections(
+    final res = await _getDirectionsWithMeta(
       _pickupLatLng!,
       _destinationLatLng!,
     );
+    final polylinePoints = (res['points'] as List<LatLng>?) ?? <LatLng>[];
+    final duration = (res['duration'] as int?) ?? 0;
+    final distance = (res['distance'] as int?) ?? 0;
 
-    if (polylinePoints.isNotEmpty) {
-      setState(() {
-        _routePolyline = Polyline(
-          polylineId: const PolylineId('route'),
-          points: polylinePoints,
-          color: Colors.blue,
-          width: 5,
-        );
-      });
-    }
+    final points = polylinePoints.isNotEmpty
+        ? polylinePoints
+        : [_pickupLatLng!, _destinationLatLng!];
+
+    setState(() {
+      _routePolyline = Polyline(
+        polylineId: const PolylineId('route'),
+        points: points,
+        color: Colors.blue,
+        width: 5,
+      );
+      _routeDurationSeconds = duration > 0 ? duration : null;
+      _routeDistanceMeters = distance > 0
+          ? distance
+          : (_pickupLatLng != null && _destinationLatLng != null
+                ? _haversineDistance(
+                    _pickupLatLng!,
+                    _destinationLatLng!,
+                  ).round()
+                : null);
+    });
   }
 
-  Future<List<LatLng>> _getDirections(LatLng start, LatLng end) async {
+  /// A helper that returns decoded polyline points together with duration and distance (in seconds/meters).
+  Future<Map<String, dynamic>> _getDirectionsWithMeta(
+    LatLng start,
+    LatLng end,
+  ) async {
     final apiKey = 'YOUR_GOOGLE_MAPS_API_KEY';
     final url =
         'https://maps.googleapis.com/maps/api/directions/json?origin=${start.latitude},${start.longitude}&destination=${end.latitude},${end.longitude}&key=$apiKey';
 
     final response = await http.get(Uri.parse(url));
-
-    if (response.statusCode != 200) return [];
-
+    if (response.statusCode != 200) {
+      return {'points': <LatLng>[], 'duration': 0, 'distance': 0};
+    }
     final data = json.decode(response.body);
-    if ((data['routes'] as List).isEmpty) return [];
+    if ((data['routes'] as List).isEmpty) {
+      return {'points': <LatLng>[], 'duration': 0, 'distance': 0};
+    }
 
     final points = <LatLng>[];
+    int totalDuration = 0;
+    int totalDistance = 0;
     final legs = data['routes'][0]['legs'] as List<dynamic>;
     for (var leg in legs) {
+      totalDuration += (leg['duration']?['value'] as int?) ?? 0;
+      totalDistance += (leg['distance']?['value'] as int?) ?? 0;
       final steps = leg['steps'] as List<dynamic>;
       for (var step in steps) {
         final polyline = step['polyline']['points'] as String;
         points.addAll(_decodePolyline(polyline));
       }
     }
-    return points;
+
+    return {
+      'points': points,
+      'duration': totalDuration,
+      'distance': totalDistance,
+    };
+  }
+
+  // Fallback simple haversine distance (meters)
+  double _haversineDistance(LatLng a, LatLng b) {
+    const R = 6371000; // meters
+    final lat1 = a.latitude * (3.141592653589793 / 180);
+    final lat2 = b.latitude * (3.141592653589793 / 180);
+    final dLat = (b.latitude - a.latitude) * (3.141592653589793 / 180);
+    final dLon = (b.longitude - a.longitude) * (3.141592653589793 / 180);
+    final sa =
+        (sin(dLat / 2) * sin(dLat / 2)) +
+        cos(lat1) * cos(lat2) * (sin(dLon / 2) * sin(dLon / 2));
+    final c = 2 * atan2(sqrt(sa), sqrt(1 - sa));
+    return R * c;
   }
 
   List<LatLng> _decodePolyline(String encoded) {
@@ -260,72 +323,241 @@ class _RideTrackingPageState extends State<RideTrackingPage> {
     };
 
     final polylines = <Polyline>{if (_routePolyline != null) _routePolyline!};
+    if (_driverToPickupPolyline != null) {
+      polylines.add(_driverToPickupPolyline!);
+    }
 
     return AppScaffold(
       title: 'Ride Tracking',
-      child: Column(
+      child: Stack(
         children: [
-          Padding(
-            padding: const EdgeInsets.all(12),
-            child: styledCard(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
+          Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.all(12),
+                child: styledCard(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Expanded(
-                        child: Text(
-                          'Status: ${_status.replaceAll('_', ' ')}',
-                          style: sectionTitleStyle(),
-                        ),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              'Status: ${_status.replaceAll('_', ' ')}',
+                              style: sectionTitleStyle(),
+                            ),
+                          ),
+                          Text(
+                            'Driver: ${_driverId ?? 'Not assigned'}',
+                            style: subtleStyle(),
+                          ),
+                          const SizedBox(width: 8),
+                          ElevatedButton(
+                            onPressed: () async {
+                              await _updateRoute();
+                              _fitMapToRoute();
+                            },
+                            child: const Text('Show route'),
+                            style: primaryButtonStyle(),
+                          ),
+                        ],
                       ),
-                      Text(
-                        'Driver: ${_driverId ?? 'Not assigned'}',
-                        style: subtleStyle(),
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              'Pickup: ${_pickupLabel ?? 'Selected location'}',
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              'Destination: ${_destinationLabel ?? 'Selected location'}',
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      // ETA badges
+                      Row(
+                        children: [
+                          if (_driverEtaSeconds != null)
+                            Chip(
+                              avatar: const Icon(
+                                Icons.directions_bike,
+                                size: 20,
+                              ),
+                              label: Text(
+                                'Driver ETA: ${_formatSeconds(_driverEtaSeconds!)}',
+                              ),
+                            ),
+                          const SizedBox(width: 8),
+                          if (_routeDurationSeconds != null)
+                            Chip(
+                              avatar: const Icon(Icons.access_time, size: 20),
+                              label: Text(
+                                'Trip: ${_formatSeconds(_routeDurationSeconds!)}',
+                              ),
+                            ),
+                        ],
                       ),
                     ],
                   ),
-                  const SizedBox(height: 8),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          'Pickup: ${_pickupLabel ?? 'Selected location'}',
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          'Destination: ${_destinationLabel ?? 'Selected location'}',
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
+                ),
               ),
-            ),
+              const SizedBox(height: 8),
+              Expanded(
+                child: GoogleMap(
+                  initialCameraPosition: CameraPosition(
+                    target:
+                        _lastDriverLatLng ?? _pickupLatLng ?? _defaultPosition,
+                    zoom: 15,
+                  ),
+                  onMapCreated: (controller) {
+                    _mapController = controller;
+                  },
+                  markers: markers,
+                  polylines: polylines,
+                  mapType: MapType.normal,
+                  buildingsEnabled: true,
+                  zoomControlsEnabled: true,
+                  myLocationButtonEnabled: true,
+                  myLocationEnabled: false,
+                ),
+              ),
+            ],
           ),
-          const SizedBox(height: 8),
-          Expanded(
-            child: GoogleMap(
-              initialCameraPosition: CameraPosition(
-                target: _lastDriverLatLng ?? _pickupLatLng ?? _defaultPosition,
-                zoom: 15,
-              ),
-              onMapCreated: (controller) {
-                _mapController = controller;
+          // Floating route button overlayed on the map
+          Positioned(
+            right: 16,
+            bottom: 24,
+            child: FloatingActionButton.extended(
+              onPressed: () async {
+                await _updateRoute();
+                _fitMapToRoute();
               },
-              markers: markers,
-              polylines: polylines,
-              mapType: MapType.normal,
-              buildingsEnabled: true,
-              zoomControlsEnabled: true,
-              myLocationButtonEnabled: true,
-              myLocationEnabled: false,
+              label: const Text('Route'),
+              icon: const Icon(Icons.alt_route),
             ),
           ),
         ],
       ),
+    );
+  }
+
+  /// Update a separate polyline that shows the driver's route to the pickup point.
+  Future<void> _updateDriverRoute(LatLng driverPos) async {
+    if (_pickupLatLng == null) return;
+
+    try {
+      final res = await _getDirectionsWithMeta(driverPos, _pickupLatLng!);
+      final points = (res['points'] as List<LatLng>?) ?? <LatLng>[];
+      final duration = (res['duration'] as int?) ?? 0;
+      final distance = (res['distance'] as int?) ?? 0;
+
+      final used = points.isNotEmpty ? points : [driverPos, _pickupLatLng!];
+      setState(() {
+        _driverToPickupPolyline = Polyline(
+          polylineId: const PolylineId('driver_to_pickup'),
+          points: used,
+          color: Colors.orange,
+          width: 4,
+          patterns: [PatternItem.dash(10), PatternItem.gap(6)],
+        );
+        if (duration > 0) {
+          _driverEtaSeconds = duration;
+        } else {
+          _driverEtaSeconds = null;
+        }
+
+        if (distance > 0) {
+          _driverDistanceToPickupMeters = distance;
+        } else {
+          // fallback to haversine distance if directions did not return metrics
+          _driverDistanceToPickupMeters = _haversineDistance(
+            driverPos,
+            _pickupLatLng!,
+          ).round();
+        }
+      });
+    } catch (e) {
+      // ignore errors from directions fetch; route is optional
+    }
+  }
+
+  String _formatSeconds(int seconds) {
+    if (seconds < 60) return '${seconds}s';
+    final mins = seconds ~/ 60;
+    final hrs = mins ~/ 60;
+    final remMins = mins % 60;
+    if (hrs > 0) return '${hrs}h ${remMins}m';
+    return '${mins}m';
+  }
+
+  void _fitMapToIncludeDriver(LatLng driverPos) {
+    // compute bounds including driver, pickup and destination
+    final points = <LatLng>[];
+    points.add(driverPos);
+    if (_pickupLatLng != null) points.add(_pickupLatLng!);
+    if (_destinationLatLng != null) points.add(_destinationLatLng!);
+    if (points.isEmpty) return;
+
+    double minLat = points.first.latitude;
+    double maxLat = points.first.latitude;
+    double minLng = points.first.longitude;
+    double maxLng = points.first.longitude;
+
+    for (final p in points) {
+      if (p.latitude < minLat) minLat = p.latitude;
+      if (p.latitude > maxLat) maxLat = p.latitude;
+      if (p.longitude < minLng) minLng = p.longitude;
+      if (p.longitude > maxLng) maxLng = p.longitude;
+    }
+
+    final padding = 80.0;
+    final bounds = LatLngBounds(
+      southwest: LatLng(minLat, minLng),
+      northeast: LatLng(maxLat, maxLng),
+    );
+
+    try {
+      _mapController?.animateCamera(
+        CameraUpdate.newLatLngBounds(bounds, padding),
+      );
+    } catch (_) {
+      // might throw if map not ready; ignore
+    }
+  }
+
+  void _fitMapToRoute() {
+    // Fit the map camera to the route polyline or to pickup/destination markers
+    final points = <LatLng>[];
+    if (_routePolyline != null) points.addAll(_routePolyline!.points);
+    if (_pickupLatLng != null) points.add(_pickupLatLng!);
+    if (_destinationLatLng != null) points.add(_destinationLatLng!);
+    if (points.isEmpty) return;
+
+    double minLat = points.first.latitude;
+    double maxLat = points.first.latitude;
+    double minLng = points.first.longitude;
+    double maxLng = points.first.longitude;
+
+    for (final p in points) {
+      if (p.latitude < minLat) minLat = p.latitude;
+      if (p.latitude > maxLat) maxLat = p.latitude;
+      if (p.longitude < minLng) minLng = p.longitude;
+      if (p.longitude > maxLng) maxLng = p.longitude;
+    }
+
+    final padding = 50.0;
+    final bounds = LatLngBounds(
+      southwest: LatLng(minLat, minLng),
+      northeast: LatLng(maxLat, maxLng),
+    );
+
+    _mapController?.animateCamera(
+      CameraUpdate.newLatLngBounds(bounds, padding),
     );
   }
 }

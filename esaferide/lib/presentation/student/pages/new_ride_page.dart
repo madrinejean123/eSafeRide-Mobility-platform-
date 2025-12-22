@@ -65,6 +65,16 @@ class _NewRidePageState extends State<NewRidePage> {
   Future<void> _getCurrentLocation() async {
     setState(() => _loadingPickup = true);
 
+    // On web, navigator.geolocation requires a secure origin (https).
+    // Check the current URI scheme and fall back to manual input if insecure.
+    if (kIsWeb && Uri.base.scheme != 'https') {
+      _showError(
+        'Location on web requires HTTPS. Please enter pickup manually.',
+      );
+      setState(() => _loadingPickup = false);
+      return;
+    }
+
     final serviceEnabled = await Geolocator.isLocationServiceEnabled();
     if (!serviceEnabled) {
       _showError('Enable location services');
@@ -95,6 +105,212 @@ class _NewRidePageState extends State<NewRidePage> {
     }
 
     setState(() => _loadingPickup = false);
+  }
+
+  Future<void> _openPickupPicker() async {
+    LatLng? selected;
+
+    await showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      builder: (_) {
+        return SizedBox(
+          height: MediaQuery.of(context).size.height * 0.75,
+          child: kIsWeb
+              ? _buildMapPickerForPickup(selected)
+              : _buildAndroidPickerForPickup(selected),
+        );
+      },
+    );
+  }
+
+  Widget _buildMapPickerForPickup(LatLng? selected) {
+    return GoogleMap(
+      initialCameraPosition: CameraPosition(
+        target: _pickup != null
+            ? LatLng(_pickup!.latitude, _pickup!.longitude)
+            : const LatLng(0.3356, 32.5686),
+        zoom: 16,
+      ),
+      myLocationEnabled: true,
+      onTap: (pos) async {
+        selected = pos;
+        final label = await resolveLabel(pos.latitude, pos.longitude);
+
+        _pickup = GeoPoint(pos.latitude, pos.longitude);
+        _pickupLabel = label ?? 'Selected pickup';
+
+        if (!mounted) {
+          return;
+        }
+        Navigator.of(context).pop();
+        setState(() {});
+      },
+      markers: selected == null
+          ? {}
+          : {Marker(markerId: const MarkerId('pickup'), position: selected)},
+    );
+  }
+
+  Widget _buildAndroidPickerForPickup(LatLng? selected) {
+    final TextEditingController searchController = TextEditingController();
+    List<Map<String, String>> suggestions = [];
+    Timer? debounce;
+
+    return StatefulBuilder(
+      builder: (context, setModalState) {
+        void onChange(String value) {
+          debounce?.cancel();
+          debounce = Timer(const Duration(milliseconds: 300), () async {
+            if (value.trim().isEmpty) return;
+            final results = await placeAutocomplete(value);
+            setModalState(() => suggestions = results);
+          });
+        }
+
+        return Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Padding(
+              padding: const EdgeInsets.all(12),
+              child: TextField(
+                controller: searchController,
+                autofocus: true,
+                decoration: const InputDecoration(
+                  hintText: 'Search pickup location',
+                ),
+                onChanged: onChange,
+              ),
+            ),
+            Expanded(
+              child: suggestions.isEmpty
+                  ? GoogleMap(
+                      initialCameraPosition: CameraPosition(
+                        target: _pickup != null
+                            ? LatLng(_pickup!.latitude, _pickup!.longitude)
+                            : const LatLng(0.3356, 32.5686),
+                        zoom: 16,
+                      ),
+                      myLocationEnabled: true,
+                      onTap: (pos) async {
+                        selected = pos;
+                        final label = await resolveLabel(
+                          pos.latitude,
+                          pos.longitude,
+                        );
+
+                        _pickup = GeoPoint(pos.latitude, pos.longitude);
+                        _pickupLabel = label ?? 'Selected pickup';
+
+                        if (!mounted) {
+                          return;
+                        }
+                        Navigator.of(this.context).pop();
+                        setState(() {});
+                      },
+                      markers: selected == null
+                          ? {}
+                          : {
+                              Marker(
+                                markerId: const MarkerId('pickup'),
+                                position: selected!,
+                              ),
+                            },
+                    )
+                  : ListView.builder(
+                      itemCount: suggestions.length,
+                      itemBuilder: (context, i) {
+                        final s = suggestions[i];
+                        return ListTile(
+                          title: Text(s['description'] ?? ''),
+                          onTap: () async {
+                            final details = await placeDetailsLatLng(
+                              s['place_id'] ?? '',
+                            );
+                            if (details == null) {
+                              _showError('Failed to get place details');
+                              return;
+                            }
+
+                            _pickup = GeoPoint(
+                              details['lat']!,
+                              details['lng']!,
+                            );
+                            _pickupLabel = s['description'];
+
+                            if (!mounted) {
+                              return;
+                            }
+                            Navigator.of(this.context).pop();
+                            setState(() {});
+                          },
+                        );
+                      },
+                    ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<void> _openManualLatLngDialog({required bool forPickup}) async {
+    final latCtrl = TextEditingController();
+    final lngCtrl = TextEditingController();
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) {
+        return AlertDialog(
+          title: Text(
+            forPickup
+                ? 'Enter pickup coordinates'
+                : 'Enter destination coordinates',
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: latCtrl,
+                keyboardType: TextInputType.numberWithOptions(decimal: true),
+                decoration: const InputDecoration(hintText: 'Latitude'),
+              ),
+              TextField(
+                controller: lngCtrl,
+                keyboardType: TextInputType.numberWithOptions(decimal: true),
+                decoration: const InputDecoration(hintText: 'Longitude'),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(false),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.of(ctx).pop(true),
+              child: const Text('Set'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (ok == true) {
+      final lat = double.tryParse(latCtrl.text.trim());
+      final lng = double.tryParse(lngCtrl.text.trim());
+      if (lat == null || lng == null) {
+        _showError('Invalid coordinates');
+        return;
+      }
+      if (forPickup) {
+        _pickup = GeoPoint(lat, lng);
+        _pickupLabel = await resolveLabel(lat, lng);
+      } else {
+        _destination = GeoPoint(lat, lng);
+        _destinationLabel = await resolveLabel(lat, lng);
+      }
+      if (mounted) setState(() {});
+    }
   }
 
   /* ===================== DESTINATION ===================== */
@@ -133,8 +349,10 @@ class _NewRidePageState extends State<NewRidePage> {
         _destination = GeoPoint(pos.latitude, pos.longitude);
         _destinationLabel = label ?? 'Selected location';
 
-        if (!mounted) return;
-        Navigator.pop(context);
+        if (!mounted) {
+          return;
+        }
+        Navigator.of(context).pop();
         setState(() {});
       },
       markers: selected == null
@@ -185,7 +403,6 @@ class _NewRidePageState extends State<NewRidePage> {
                       ),
                       myLocationEnabled: true,
                       onTap: (pos) async {
-                        final modalContext = context;
                         selected = pos;
                         final label = await resolveLabel(
                           pos.latitude,
@@ -195,8 +412,10 @@ class _NewRidePageState extends State<NewRidePage> {
                         _destination = GeoPoint(pos.latitude, pos.longitude);
                         _destinationLabel = label ?? 'Selected location';
 
-                        if (!mounted) return;
-                        Navigator.pop(modalContext);
+                        if (!mounted) {
+                          return;
+                        }
+                        Navigator.of(this.context).pop();
                         setState(() {});
                       },
                       markers: selected == null
@@ -215,7 +434,6 @@ class _NewRidePageState extends State<NewRidePage> {
                         return ListTile(
                           title: Text(s['description'] ?? ''),
                           onTap: () async {
-                            final modalContext = context;
                             final details = await placeDetailsLatLng(
                               s['place_id'] ?? '',
                             );
@@ -230,8 +448,10 @@ class _NewRidePageState extends State<NewRidePage> {
                             );
                             _destinationLabel = s['description'];
 
-                            if (!mounted) return;
-                            Navigator.pop(modalContext);
+                            if (!mounted) {
+                              return;
+                            }
+                            Navigator.of(this.context).pop();
                             setState(() {});
                           },
                         );
@@ -350,10 +570,28 @@ class _NewRidePageState extends State<NewRidePage> {
                         height: 20,
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
-                    : ElevatedButton(
-                        onPressed: _getCurrentLocation,
-                        style: primaryButtonStyle(),
-                        child: const Text('SET'),
+                    : Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          ElevatedButton(
+                            onPressed: _getCurrentLocation,
+                            style: primaryButtonStyle(),
+                            child: const Text('SET'),
+                          ),
+                          const SizedBox(width: 6),
+                          ElevatedButton(
+                            onPressed: _openPickupPicker,
+                            style: primaryButtonStyle(),
+                            child: const Text('PICK'),
+                          ),
+                          const SizedBox(width: 6),
+                          ElevatedButton(
+                            onPressed: () =>
+                                _openManualLatLngDialog(forPickup: true),
+                            style: primaryButtonStyle(),
+                            child: const Text('MANUAL'),
+                          ),
+                        ],
                       ),
               ),
             ),
@@ -367,10 +605,22 @@ class _NewRidePageState extends State<NewRidePage> {
                   _destinationLabel ?? 'Search destination',
                   style: const TextStyle(fontSize: 14),
                 ),
-                trailing: ElevatedButton(
-                  onPressed: _openDestinationPicker,
-                  style: primaryButtonStyle(),
-                  child: const Text('SEARCH'),
+                trailing: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    ElevatedButton(
+                      onPressed: _openDestinationPicker,
+                      style: primaryButtonStyle(),
+                      child: const Text('SEARCH'),
+                    ),
+                    const SizedBox(width: 6),
+                    ElevatedButton(
+                      onPressed: () =>
+                          _openManualLatLngDialog(forPickup: false),
+                      style: primaryButtonStyle(),
+                      child: const Text('MANUAL'),
+                    ),
+                  ],
                 ),
               ),
             ),
