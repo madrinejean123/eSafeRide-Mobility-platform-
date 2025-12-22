@@ -1,0 +1,54 @@
+name: Build Flutter APK
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  build_apk:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      # Remove old Flutter to avoid conflicts
+      - name: Remove old Flutter
+        run: |
+          sudo rm -rf /opt/hostedtoolcache/flutter
+          rm -rf $HOME/.flutter
+          rm -rf $HOME/.pub-cache
+
+      # Install Flutter manually
+      - name: Install Flutter 3.13.7
+        run: |
+          git clone https://github.com/flutter/flutter.git -b stable $HOME/flutter
+          echo "$HOME/flutter/bin" >> $GITHUB_PATH  # <-- this makes Flutter available in all next steps
+
+      # Confirm Flutter & Dart version
+      - name: Check Flutter version
+        run: flutter --version
+
+      # Install dependencies
+      - name: Get dependencies
+        run: flutter pub get
+        working-directory: esaferide
+
+      # Clean old builds
+      - name: Clean previous builds
+        run: flutter clean
+        working-directory: esaferide
+
+      # Build APK
+      - name: Build APK
+        run: flutter build apk --release
+        working-directory: esaferide
+
+      # Upload APK
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-release.apk
+          path: esaferide/build/app/outputs/flutter-apk/app-release.apk
