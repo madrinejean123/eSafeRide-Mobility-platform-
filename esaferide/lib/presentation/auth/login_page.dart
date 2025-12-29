@@ -146,16 +146,23 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
 
   // ---------------- ROLE ROUTING ----------------
   Future<void> _routeByRole(String uid) async {
+    final currentUser = FirebaseAuth.instance.currentUser;
+
+    debugPrint('UID PASSED IN : $uid');
+    debugPrint('AUTH CURRENT UID: ${currentUser?.uid}');
+    debugPrint('AUTH EMAIL     : ${currentUser?.email}');
+
     final snap = await _db.collection('users').doc(uid).get();
+
+    debugPrint('DOC EXISTS: ${snap.exists}');
+    debugPrint('DOC DATA  : ${snap.data()}');
 
     if (!snap.exists) {
       _showSnack('Account not found');
       return;
     }
 
-    final data = snap.data();
-    final rawRole = data == null ? null : data['role'];
-    final role = rawRole?.toString().toLowerCase();
+    final role = snap.data()?['role']?.toString().toLowerCase();
 
     if (!mounted) return;
 
@@ -164,7 +171,6 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
     } else if (role == 'student') {
       Navigator.pushReplacementNamed(context, AppRoutes.studentDashboard);
     } else {
-      // default to driver dashboard for any other/unknown role
       Navigator.pushReplacementNamed(context, AppRoutes.driverDashboard);
     }
   }

@@ -25,7 +25,7 @@ class AppRoutes {
       register: (context) => const RegisterPage(),
       studentDashboard: (context) => const StudentDashboard(),
       driverDashboard: (context) => const DriverDashboard(),
-      adminDashboard: (context) => const AdminDashboardPage(),
+      adminDashboard: (context) => const AdminDashboard(),
     };
   }
 

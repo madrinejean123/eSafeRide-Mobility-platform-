@@ -182,6 +182,10 @@ class _DriverProfileState extends State<DriverProfile> {
         'phone': emergencyPhoneCtrl.text.trim(),
       },
       'createdAt': FieldValue.serverTimestamp(),
+      // mark as pending verification so admins can review before activation
+      'status': 'pending',
+      'verified': false,
+      'submittedAt': FieldValue.serverTimestamp(),
     };
 
     try {

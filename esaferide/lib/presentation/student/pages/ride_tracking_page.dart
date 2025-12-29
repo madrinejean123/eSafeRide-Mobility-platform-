@@ -41,13 +41,14 @@ class _RideTrackingPageState extends State<RideTrackingPage> {
 
   String _status = 'pending';
   String? _driverId;
+  String? _driverName;
   String? _pickupLabel;
   String? _destinationLabel;
 
   // ETA / distance info
   int? _routeDurationSeconds;
-  int? _routeDistanceMeters;
   int? _driverEtaSeconds;
+  int? _routeDistanceMeters;
   int? _driverDistanceToPickupMeters;
 
   LatLng? _pickupLatLng;
@@ -97,7 +98,13 @@ class _RideTrackingPageState extends State<RideTrackingPage> {
       setState(() {
         _status = data['status'] ?? _status;
         _driverId = data['driverId'];
+        _driverName = null;
       });
+
+      // If a driverId exists, try to resolve the driver's display name
+      if (_driverId != null && _driverId!.isNotEmpty) {
+        _loadDriverName(_driverId!);
+      }
 
       // Resolve pickup
       if (_pickupLabel == null && data['pickup'] is GeoPoint) {
@@ -173,12 +180,31 @@ class _RideTrackingPageState extends State<RideTrackingPage> {
       markerId: const MarkerId('driver'),
       position: pos,
       icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure),
-      infoWindow: InfoWindow(title: 'Driver', snippet: _driverId ?? ''),
+      infoWindow: InfoWindow(
+        title: 'Driver',
+        snippet: _driverName ?? _driverId ?? '',
+      ),
     );
 
     setState(() => _driverMarker = marker);
 
     _mapController?.animateCamera(CameraUpdate.newLatLng(pos));
+  }
+
+  Future<void> _loadDriverName(String driverId) async {
+    try {
+      final doc = await FirebaseFirestore.instance
+          .collection('drivers')
+          .doc(driverId)
+          .get();
+      if (doc.exists && doc.data() != null) {
+        final data = doc.data() as Map<String, dynamic>;
+        if (mounted)
+          setState(() => _driverName = data['fullName'] ?? data['name']);
+      }
+    } catch (e) {
+      debugPrint('Error loading driver name: $e');
+    }
   }
 
   // Animate driver smoothly along a new point
@@ -465,6 +491,20 @@ class _RideTrackingPageState extends State<RideTrackingPage> {
                               avatar: const Icon(Icons.access_time, size: 20),
                               label: Text(
                                 'Trip: ${_formatSeconds(_routeDurationSeconds!)}',
+                              ),
+                            ),
+                          const SizedBox(width: 8),
+                          if (_routeDistanceMeters != null)
+                            Chip(
+                              avatar: const Icon(Icons.timeline, size: 20),
+                              label: Text('Distance: $_routeDistanceMeters m'),
+                            ),
+                          const SizedBox(width: 8),
+                          if (_driverDistanceToPickupMeters != null)
+                            Chip(
+                              avatar: const Icon(Icons.pin_drop, size: 20),
+                              label: Text(
+                                'Driver to pickup: $_driverDistanceToPickupMeters m',
                               ),
                             ),
                         ],

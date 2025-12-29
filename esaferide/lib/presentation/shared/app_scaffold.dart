@@ -42,6 +42,24 @@ class AppScaffold extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: 16),
             child: Row(
               children: [
+                // Show a more visible back affordance when the Navigator can pop.
+                // Use a labeled button so users can easily spot how to go back.
+                if (Navigator.canPop(context))
+                  Padding(
+                    padding: const EdgeInsets.only(right: 8.0),
+                    child: TextButton.icon(
+                      onPressed: () => Navigator.of(context).maybePop(),
+                      icon: const Icon(Icons.arrow_back, color: Colors.white),
+                      label: const Text(
+                        'Back',
+                        style: TextStyle(color: Colors.white),
+                      ),
+                      style: TextButton.styleFrom(
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                      ),
+                    ),
+                  ),
                 Expanded(
                   child: Text(
                     title,
