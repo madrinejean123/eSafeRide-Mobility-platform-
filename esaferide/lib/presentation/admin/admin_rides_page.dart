@@ -37,6 +37,7 @@ class _AdminRidesPageBodyState extends State<AdminRidesPageBody> {
           ),
           ElevatedButton(
             onPressed: () => Navigator.of(dctx).pop(true),
+            style: primaryButtonStyle(),
             child: const Text('Yes'),
           ),
         ],
@@ -110,6 +111,7 @@ class _AdminRidesPageBodyState extends State<AdminRidesPageBody> {
                             );
                           }
                         },
+                        style: primaryButtonStyle(),
                         child: const Text('Assign'),
                       ),
                     );
@@ -297,6 +299,7 @@ class _RideCardState extends State<_RideCard> {
                 onPressed: () async {
                   await widget.onReject();
                 },
+                style: outlinedButtonStyle(),
                 child: const Text('Reject'),
               ),
             ],

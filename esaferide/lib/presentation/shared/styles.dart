@@ -22,6 +22,13 @@ ButtonStyle primaryButtonStyle() => ElevatedButton.styleFrom(
   padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 18),
 );
 
+ButtonStyle outlinedButtonStyle() => OutlinedButton.styleFrom(
+  foregroundColor: kPrimaryBlue,
+  side: const BorderSide(color: kPrimaryBlue),
+  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+  padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 14),
+);
+
 TextStyle sectionTitleStyle() => const TextStyle(
   fontWeight: FontWeight.bold,
   fontSize: 14,

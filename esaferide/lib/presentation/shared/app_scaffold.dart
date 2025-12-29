@@ -7,12 +7,14 @@ class AppScaffold extends StatelessWidget {
   final String title;
   final Widget child;
   final List<Widget>? actions;
+  final bool showBackButton;
 
   const AppScaffold({
     super.key,
     required this.title,
     required this.child,
     this.actions,
+    this.showBackButton = true,
   });
 
   PreferredSizeWidget _buildAppBar(BuildContext context) {
@@ -42,22 +44,17 @@ class AppScaffold extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: 16),
             child: Row(
               children: [
-                // Show a more visible back affordance when the Navigator can pop.
-                // Use a labeled button so users can easily spot how to go back.
-                if (Navigator.canPop(context))
+                // Show an icon-only back affordance when the Navigator can pop
+                // and the page allows it. Sub-pages should keep the back
+                // button while top-level pages (eg. dashboards) can disable it
+                // by setting `showBackButton: false` on the scaffold.
+                if (showBackButton && Navigator.canPop(context))
                   Padding(
                     padding: const EdgeInsets.only(right: 8.0),
-                    child: TextButton.icon(
+                    child: IconButton(
                       onPressed: () => Navigator.of(context).maybePop(),
                       icon: const Icon(Icons.arrow_back, color: Colors.white),
-                      label: const Text(
-                        'Back',
-                        style: TextStyle(color: Colors.white),
-                      ),
-                      style: TextButton.styleFrom(
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(horizontal: 8),
-                      ),
+                      tooltip: 'Back',
                     ),
                   ),
                 Expanded(

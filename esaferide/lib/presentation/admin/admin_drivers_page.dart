@@ -139,6 +139,7 @@ class _AdminDriversListState extends State<AdminDriversList> {
           ),
           ElevatedButton(
             onPressed: () => Navigator.of(dctx).pop(true),
+            style: primaryButtonStyle(),
             child: const Text('Verify'),
           ),
         ],
@@ -218,6 +219,7 @@ class _AdminDriversListState extends State<AdminDriversList> {
           ),
           ElevatedButton(
             onPressed: () => Navigator.of(dctx).pop(true),
+            style: primaryButtonStyle(),
             child: const Text('Reject'),
           ),
         ],
@@ -350,9 +352,10 @@ class _AdminDriversListState extends State<AdminDriversList> {
                         trailing: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            TextButton(
+                            ElevatedButton(
                               onPressed: () =>
                                   _showDriverDetails(context, d.id, data),
+                              style: primaryButtonStyle(),
                               child: const Text('View'),
                             ),
                             const SizedBox(width: 6),
@@ -370,6 +373,7 @@ class _AdminDriversListState extends State<AdminDriversList> {
                               const SizedBox(width: 6),
                               OutlinedButton(
                                 onPressed: () => _rejectDriver(context, d.id),
+                                style: outlinedButtonStyle(),
                                 child: const Text('Reject'),
                               ),
                             ],
