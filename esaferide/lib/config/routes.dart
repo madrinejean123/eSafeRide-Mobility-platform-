@@ -5,6 +5,7 @@ import 'package:esaferide/presentation/auth/register_page.dart';
 import 'package:esaferide/presentation/auth/splash_page.dart';
 import 'package:esaferide/presentation/student/pages/student_dashboard.dart';
 import 'package:esaferide/presentation/driver/pages/driver_dashboard.dart';
+import 'package:esaferide/presentation/admin/admin_dashboard.dart';
 
 class AppRoutes {
   // Basic routes
@@ -15,6 +16,7 @@ class AppRoutes {
   // Dashboard routes
   static const String studentDashboard = '/student_dashboard';
   static const String driverDashboard = '/driver_dashboard';
+  static const String adminDashboard = '/admin_dashboard';
 
   static Map<String, WidgetBuilder> get routes {
     return {
@@ -23,6 +25,7 @@ class AppRoutes {
       register: (context) => const RegisterPage(),
       studentDashboard: (context) => const StudentDashboard(),
       driverDashboard: (context) => const DriverDashboard(),
+      adminDashboard: (context) => const AdminDashboardPage(),
     };
   }
 

@@ -153,13 +153,18 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
       return;
     }
 
-    final role = snap['role'];
+    final data = snap.data();
+    final rawRole = data == null ? null : data['role'];
+    final role = rawRole?.toString().toLowerCase();
 
     if (!mounted) return;
 
-    if (role == 'Student') {
+    if (role == 'admin') {
+      Navigator.pushReplacementNamed(context, AppRoutes.adminDashboard);
+    } else if (role == 'student') {
       Navigator.pushReplacementNamed(context, AppRoutes.studentDashboard);
     } else {
+      // default to driver dashboard for any other/unknown role
       Navigator.pushReplacementNamed(context, AppRoutes.driverDashboard);
     }
   }

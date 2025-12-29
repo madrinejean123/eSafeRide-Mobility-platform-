@@ -2,8 +2,9 @@
   "name": "esaferide-functions",
   "version": "0.1.0",
   "private": true,
+  "main": "lib/index.js",
   "engines": {
-    "node": "18"
+    "node": "20"
   },
   "scripts": {
     "build": "tsc",
@@ -16,7 +17,7 @@
   },
   "devDependencies": {
     "typescript": "^5.2.2",
-    "@types/node": "^18.19.0",
+    "@types/node": "^20.5.1",
     "firebase-functions-test": "^3.1.0",
     "glob": "^7.2.3",
     "rimraf": "^3.0.2"

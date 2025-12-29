@@ -9,6 +9,7 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:http/http.dart' as http;
 
 import '../../../data/services/geocode_service.dart';
+import 'package:esaferide/utils/platform_api_key.dart';
 import 'package:esaferide/presentation/shared/app_scaffold.dart';
 import 'package:esaferide/presentation/shared/styles.dart';
 
@@ -35,6 +36,9 @@ class _RideTrackingPageState extends State<RideTrackingPage> {
   DateTime? _lastDriverRouteFetch;
   static const Duration _driverRouteThrottle = Duration(seconds: 8);
 
+  String? _googleMapsApiKey;
+  String? _directionsFunctionUrl;
+
   String _status = 'pending';
   String? _driverId;
   String? _pickupLabel;
@@ -59,7 +63,21 @@ class _RideTrackingPageState extends State<RideTrackingPage> {
   @override
   void initState() {
     super.initState();
+    _loadApiKey();
     _listenToRide();
+  }
+
+  Future<void> _loadApiKey() async {
+    try {
+      _googleMapsApiKey = await PlatformApiKey.getGoogleMapsApiKey();
+      _directionsFunctionUrl = await PlatformApiKey.getDirectionsFunctionUrl();
+      debugPrint(
+        'Loaded Google Maps API key: ${_googleMapsApiKey != null ? "(present)" : "(missing)"}; directionsFunctionUrl: ${_directionsFunctionUrl != null ? "(present)" : "(missing)"}',
+      );
+    } catch (e) {
+      debugPrint('Error loading Google Maps API key: $e');
+      _googleMapsApiKey = null;
+    }
   }
 
   @override
@@ -200,6 +218,7 @@ class _RideTrackingPageState extends State<RideTrackingPage> {
 
   Future<void> _updateRoute() async {
     if (_pickupLatLng == null || _destinationLatLng == null) return;
+
     final res = await _getDirectionsWithMeta(
       _pickupLatLng!,
       _destinationLatLng!,
@@ -236,32 +255,85 @@ class _RideTrackingPageState extends State<RideTrackingPage> {
     LatLng start,
     LatLng end,
   ) async {
-    final apiKey = 'YOUR_GOOGLE_MAPS_API_KEY';
-    final url =
-        'https://maps.googleapis.com/maps/api/directions/json?origin=${start.latitude},${start.longitude}&destination=${end.latitude},${end.longitude}&key=$apiKey';
+    Map<String, dynamic> data;
 
-    final response = await http.get(Uri.parse(url));
-    if (response.statusCode != 200) {
+    if (_directionsFunctionUrl != null && _directionsFunctionUrl!.isNotEmpty) {
+      final funcUrl =
+          '${_directionsFunctionUrl!}?origin=${start.latitude},${start.longitude}&destination=${end.latitude},${end.longitude}';
+      debugPrint('Calling directions via Cloud Function: $funcUrl');
+      final response = await http.get(Uri.parse(funcUrl));
+      if (response.statusCode != 200) {
+        debugPrint('Directions function error: HTTP ${response.statusCode}');
+        debugPrint('Body: ${response.body}');
+        return {'points': <LatLng>[], 'duration': 0, 'distance': 0};
+      }
+      data = json.decode(response.body) as Map<String, dynamic>;
+    } else {
+      final apiKey = _googleMapsApiKey?.isNotEmpty == true
+          ? _googleMapsApiKey!
+          : 'AIzaSyApNrcg8oYtgww7uJnMaMXYz7lgyvX5aNc';
+      debugPrint(
+        'Using Google Maps API key: ${_googleMapsApiKey != null ? "(runtime)" : "(embedded fallback)"}',
+      );
+
+      final url =
+          'https://maps.googleapis.com/maps/api/directions/json?origin=${start.latitude},${start.longitude}&destination=${end.latitude},${end.longitude}&mode=driving&alternatives=false&key=$apiKey';
+
+      final response = await http.get(Uri.parse(url));
+      if (response.statusCode != 200) {
+        debugPrint('Directions API error: HTTP ${response.statusCode}');
+        debugPrint('Body: ${response.body}');
+        return {'points': <LatLng>[], 'duration': 0, 'distance': 0};
+      }
+      data = json.decode(response.body) as Map<String, dynamic>;
+    }
+
+    final routes = (data['routes'] as List?) ?? [];
+    if (routes.isEmpty) {
+      debugPrint(
+        'Directions API returned no routes. Body: ${json.encode(data)}',
+      );
       return {'points': <LatLng>[], 'duration': 0, 'distance': 0};
     }
-    final data = json.decode(response.body);
-    if ((data['routes'] as List).isEmpty) {
-      return {'points': <LatLng>[], 'duration': 0, 'distance': 0};
-    }
 
+    final firstRoute = routes[0] as Map<String, dynamic>;
+    final overview = firstRoute['overview_polyline'];
     final points = <LatLng>[];
+    if (overview != null &&
+        overview is Map<String, dynamic> &&
+        overview['points'] is String) {
+      points.addAll(_decodePolyline(overview['points'] as String));
+    } else {
+      int totalDuration = 0;
+      int totalDistance = 0;
+      final legs = firstRoute['legs'] as List<dynamic>? ?? [];
+      for (var leg in legs) {
+        totalDuration += (leg['duration']?['value'] as int?) ?? 0;
+        totalDistance += (leg['distance']?['value'] as int?) ?? 0;
+        final steps = leg['steps'] as List<dynamic>? ?? [];
+        for (var step in steps) {
+          final polyline = step['polyline']?['points'] as String?;
+          if (polyline != null) points.addAll(_decodePolyline(polyline));
+        }
+      }
+      return {
+        'points': points,
+        'duration': totalDuration,
+        'distance': totalDistance,
+      };
+    }
+
     int totalDuration = 0;
     int totalDistance = 0;
-    final legs = data['routes'][0]['legs'] as List<dynamic>;
+    final legs = firstRoute['legs'] as List<dynamic>? ?? [];
     for (var leg in legs) {
       totalDuration += (leg['duration']?['value'] as int?) ?? 0;
       totalDistance += (leg['distance']?['value'] as int?) ?? 0;
-      final steps = leg['steps'] as List<dynamic>;
-      for (var step in steps) {
-        final polyline = step['polyline']['points'] as String;
-        points.addAll(_decodePolyline(polyline));
-      }
     }
+
+    debugPrint(
+      'Directions fetched: points=${points.length}, duration=$totalDuration, distance=$totalDistance',
+    );
 
     return {
       'points': points,
@@ -352,14 +424,9 @@ class _RideTrackingPageState extends State<RideTrackingPage> {
                             style: subtleStyle(),
                           ),
                           const SizedBox(width: 8),
-                          ElevatedButton(
-                            onPressed: () async {
-                              await _updateRoute();
-                              _fitMapToRoute();
-                            },
-                            child: const Text('Show route'),
-                            style: primaryButtonStyle(),
-                          ),
+                          // Removed the duplicate header "Show route" button. Use the floating
+                          // Route button (bottom-right) to show the route between pickup and
+                          // destination. That button only appears when both locations are set.
                         ],
                       ),
                       const SizedBox(height: 8),
@@ -428,19 +495,20 @@ class _RideTrackingPageState extends State<RideTrackingPage> {
               ),
             ],
           ),
-          // Floating route button overlayed on the map
-          Positioned(
-            right: 16,
-            bottom: 24,
-            child: FloatingActionButton.extended(
-              onPressed: () async {
-                await _updateRoute();
-                _fitMapToRoute();
-              },
-              label: const Text('Route'),
-              icon: const Icon(Icons.alt_route),
+          // Floating route button overlayed on the map — show only when pickup & destination exist
+          if (_pickupLatLng != null && _destinationLatLng != null)
+            Positioned(
+              right: 16,
+              bottom: 24,
+              child: FloatingActionButton.extended(
+                onPressed: () async {
+                  await _updateRoute();
+                  _fitMapToRoute();
+                },
+                label: const Text('Show route'),
+                icon: const Icon(Icons.alt_route),
+              ),
             ),
-          ),
         ],
       ),
     );

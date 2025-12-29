@@ -67,3 +67,44 @@ export const onNotificationCreate = functions.firestore
       console.error('Error sending notification', err);
     }
   });
+
+// HTTPS function that proxies Directions API requests so the API key stays secret.
+export const getDirections = functions.https.onRequest(async (req, res) => {
+  // Allow CORS from any origin (adjust in production as needed).
+  res.set('Access-Control-Allow-Origin', '*');
+  res.set('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  res.set('Access-Control-Allow-Headers', 'Content-Type');
+
+  if (req.method === 'OPTIONS') {
+    res.status(204).send('');
+    return;
+  }
+
+  const origin = req.query.origin as string | undefined;
+  const destination = req.query.destination as string | undefined;
+
+  if (!origin || !destination) {
+    res.status(400).json({ error: 'Missing origin or destination query parameter' });
+    return;
+  }
+
+  const mapsKey = functions.config().maps?.key;
+  if (!mapsKey) {
+    res.status(500).json({ error: 'Server misconfigured: maps.key not set in functions config' });
+    return;
+  }
+
+  try {
+    const url = `https://maps.googleapis.com/maps/api/directions/json?origin=${encodeURIComponent(
+      origin,
+    )}&destination=${encodeURIComponent(destination)}&mode=driving&alternatives=false&key=${mapsKey}`;
+
+    // Node 18+ has global fetch
+    const r = await fetch(url);
+    const data = await r.json();
+    res.json(data);
+  } catch (err: any) {
+    console.error('Error fetching directions', err);
+    res.status(500).json({ error: 'Error fetching directions', details: err?.toString() });
+  }
+});
