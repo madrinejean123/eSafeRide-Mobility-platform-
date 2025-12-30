@@ -45,71 +45,82 @@ class _AdminDriversListState extends State<AdminDriversList> {
       await showDialog<void>(
         context: context,
         builder: (dctx) => AlertDialog(
-          title: Text(ddata['fullName'] ?? 'Driver'),
+          title: Text(
+            ddata['fullName'] ?? 'Driver',
+            style: sectionTitleStyle(),
+          ),
           content: SizedBox(
             width: 420,
             child: SingleChildScrollView(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  if (ddata['profilePhotoUrl'] != null) ...[
-                    const Text('Profile Photo'),
+              child: styledCard(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (ddata['profilePhotoUrl'] != null) ...[
+                      Center(
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(8),
+                          child: Image.network(
+                            ddata['profilePhotoUrl'],
+                            height: 160,
+                            fit: BoxFit.cover,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                    ],
+                    if (ddata['govIdUrl'] != null) ...[
+                      Text('ID / Document', style: sectionTitleStyle()),
+                      const SizedBox(height: 6),
+                      Image.network(
+                        ddata['govIdUrl'],
+                        height: 160,
+                        fit: BoxFit.contain,
+                      ),
+                      const SizedBox(height: 12),
+                    ],
+                    if (ddata['licenseUrl'] != null) ...[
+                      Text('License', style: sectionTitleStyle()),
+                      const SizedBox(height: 6),
+                      Image.network(
+                        ddata['licenseUrl'],
+                        height: 140,
+                        fit: BoxFit.contain,
+                      ),
+                      const SizedBox(height: 12),
+                    ],
+                    Text('Phone: ${ddata['phone'] ?? '—'}'),
                     const SizedBox(height: 6),
-                    Image.network(
-                      ddata['profilePhotoUrl'],
-                      height: 160,
-                      fit: BoxFit.cover,
-                    ),
-                    const SizedBox(height: 12),
-                  ],
-                  if (ddata['govIdUrl'] != null) ...[
-                    const Text('ID / Document'),
+                    Text('Email: ${ddata['email'] ?? '—'}'),
                     const SizedBox(height: 6),
-                    Image.network(
-                      ddata['govIdUrl'],
-                      height: 160,
-                      fit: BoxFit.contain,
-                    ),
-                    const SizedBox(height: 12),
-                  ],
-                  if (ddata['licenseUrl'] != null) ...[
-                    const Text('License'),
+                    Text('Address: ${ddata['address'] ?? '—'}'),
                     const SizedBox(height: 6),
-                    Image.network(
-                      ddata['licenseUrl'],
-                      height: 140,
-                      fit: BoxFit.contain,
-                    ),
-                    const SizedBox(height: 12),
-                  ],
-                  Text('Phone: ${ddata['phone'] ?? '—'}'),
-                  const SizedBox(height: 6),
-                  Text('Email: ${ddata['email'] ?? '—'}'),
-                  const SizedBox(height: 6),
-                  Text('Address: ${ddata['address'] ?? '—'}'),
-                  const SizedBox(height: 6),
-                  Text('License #: ${ddata['licenseNo'] ?? '—'}'),
-                  const SizedBox(height: 6),
-                  Text(
-                    'Motorcycle: ${ddata['motorcycle']?['makeModel'] ?? '—'} • ${ddata['motorcycle']?['regNo'] ?? ''}',
-                  ),
-                  const SizedBox(height: 12),
-                  if (ddata['emergencyContact'] != null) ...[
-                    const Text('Emergency Contact'),
+                    Text('License #: ${ddata['licenseNo'] ?? '—'}'),
                     const SizedBox(height: 6),
-                    Text('Name: ${ddata['emergencyContact']?['name'] ?? '—'}'),
-                    const SizedBox(height: 4),
                     Text(
-                      'Phone: ${ddata['emergencyContact']?['phone'] ?? '—'}',
+                      'Motorcycle: ${ddata['motorcycle']?['makeModel'] ?? '—'} • ${ddata['motorcycle']?['regNo'] ?? ''}',
                     ),
                     const SizedBox(height: 12),
+                    if (ddata['emergencyContact'] != null) ...[
+                      Text('Emergency Contact', style: sectionTitleStyle()),
+                      const SizedBox(height: 6),
+                      Text(
+                        'Name: ${ddata['emergencyContact']?['name'] ?? '—'}',
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Phone: ${ddata['emergencyContact']?['phone'] ?? '—'}',
+                      ),
+                      const SizedBox(height: 12),
+                    ],
+                    if (ddata['notes'] != null) ...[
+                      Text('Notes', style: sectionTitleStyle()),
+                      const SizedBox(height: 6),
+                      Text(ddata['notes']),
+                    ],
                   ],
-                  if (ddata['notes'] != null) ...[
-                    const Text('Notes'),
-                    const SizedBox(height: 6),
-                    Text(ddata['notes']),
-                  ],
-                ],
+                ),
               ),
             ),
           ),

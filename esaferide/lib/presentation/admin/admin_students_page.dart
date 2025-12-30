@@ -42,50 +42,59 @@ class _AdminStudentsListState extends State<AdminStudentsList> {
       await showDialog<void>(
         context: context,
         builder: (dctx) => AlertDialog(
-          title: Text(ddata['name'] ?? ddata['fullName'] ?? 'Student'),
+          title: Text(
+            ddata['name'] ?? ddata['fullName'] ?? 'Student',
+            style: sectionTitleStyle(),
+          ),
           content: SizedBox(
             width: 420,
             child: SingleChildScrollView(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  if (ddata['photo'] != null) ...[
-                    const Text('Photo'),
+              child: styledCard(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (ddata['photo'] != null) ...[
+                      Center(
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(8),
+                          child: Image.network(
+                            ddata['photo'],
+                            height: 160,
+                            fit: BoxFit.cover,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                    ],
+                    Text('Name: ${ddata['fullName'] ?? ddata['name'] ?? '—'}'),
                     const SizedBox(height: 6),
-                    Image.network(
-                      ddata['photo'],
-                      height: 160,
-                      fit: BoxFit.cover,
+                    Text('Reg#: ${ddata['regNumber'] ?? '—'}'),
+                    const SizedBox(height: 6),
+                    Text('Course: ${ddata['course'] ?? ddata['class'] ?? '—'}'),
+                    const SizedBox(height: 6),
+                    Text('Year: ${ddata['year'] ?? '—'}'),
+                    const SizedBox(height: 6),
+                    Text('Phone: ${ddata['phone'] ?? '—'}'),
+                    const SizedBox(height: 12),
+                    if (ddata['accessibility'] != null) ...[
+                      Text('Accessibility Needs', style: sectionTitleStyle()),
+                      const SizedBox(height: 6),
+                      Text(ddata['accessibility'].toString()),
+                      const SizedBox(height: 12),
+                    ],
+                    Text('Emergency Contact', style: sectionTitleStyle()),
+                    const SizedBox(height: 6),
+                    Text(
+                      'Name: ${ddata['emergencyName'] ?? ddata['emergencyContact']?['name'] ?? '—'}',
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Phone: ${ddata['emergencyPhone'] ?? ddata['emergencyContact']?['phone'] ?? '—'}',
                     ),
                     const SizedBox(height: 12),
                   ],
-                  Text('Name: ${ddata['fullName'] ?? ddata['name'] ?? '—'}'),
-                  const SizedBox(height: 6),
-                  Text('Reg#: ${ddata['regNumber'] ?? '—'}'),
-                  const SizedBox(height: 6),
-                  Text('Course: ${ddata['course'] ?? ddata['class'] ?? '—'}'),
-                  const SizedBox(height: 6),
-                  Text('Year: ${ddata['year'] ?? '—'}'),
-                  const SizedBox(height: 6),
-                  Text('Phone: ${ddata['phone'] ?? '—'}'),
-                  const SizedBox(height: 12),
-                  if (ddata['accessibility'] != null) ...[
-                    const Text('Accessibility Needs'),
-                    const SizedBox(height: 6),
-                    Text(ddata['accessibility'].toString()),
-                    const SizedBox(height: 12),
-                  ],
-                  const Text('Emergency Contact'),
-                  const SizedBox(height: 6),
-                  Text(
-                    'Name: ${ddata['emergencyName'] ?? ddata['emergencyContact']?['name'] ?? '—'}',
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    'Phone: ${ddata['emergencyPhone'] ?? ddata['emergencyContact']?['phone'] ?? '—'}',
-                  ),
-                  const SizedBox(height: 12),
-                ],
+                ),
               ),
             ),
           ),

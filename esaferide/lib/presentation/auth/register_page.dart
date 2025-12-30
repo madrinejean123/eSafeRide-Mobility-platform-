@@ -171,6 +171,20 @@ class _RegisterPageState extends State<RegisterPage>
       'role': _selectedRole,
       'createdAt': FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));
+    // If registering as a driver, create an initial drivers/ doc so the
+    // app can show the profile submission / pending verification flow
+    if (_selectedRole == 'Driver') {
+      await _db.collection('drivers').doc(user.uid).set({
+        'uid': user.uid,
+        'email': user.email,
+        'fullName': _usernameController.text.isEmpty
+            ? user.displayName
+            : _usernameController.text,
+        'status': 'pending',
+        'verified': false,
+        'createdAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+    }
   }
 
   void _goToDashboard() {

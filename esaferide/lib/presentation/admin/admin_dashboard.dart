@@ -303,12 +303,16 @@ class _AdminDashboardState extends State<AdminDashboard>
 
             return Column(
               children: snap.data!.docs.take(5).map((doc) {
-                final name = doc['name'] ?? 'Unknown Driver';
+                final Map<String, dynamic>? ddata =
+                    doc.data() as Map<String, dynamic>?;
+                final name = ddata == null
+                    ? 'Unknown Driver'
+                    : (ddata['fullName'] ?? ddata['name'] ?? 'Unknown Driver');
                 return Container(
                   margin: const EdgeInsets.only(bottom: 10),
                   padding: const EdgeInsets.all(14),
                   decoration: BoxDecoration(
-                    color: Colors.orange.withOpacity(0.12),
+                    color: const Color.fromRGBO(255, 165, 0, 0.12),
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: Row(

@@ -10,61 +10,56 @@ import '../../../data/services/location_updater.dart';
 import '../../../data/services/geocode_service_io.dart';
 import 'available_rides_page.dart';
 
-// Cache TTL for resolved addresses
-const Duration _kAddressCacheTtl = Duration(hours: 6);
+// Small cache entry for resolved addresses
+class AddressCacheEntry {
+  final String? label;
+  final DateTime fetchedAt;
 
-class _AddressCacheEntry {
-  String? label; // null means resolution pending
-  DateTime fetchedAt;
-
-  _AddressCacheEntry({this.label, required this.fetchedAt});
+  AddressCacheEntry({this.label, required this.fetchedAt});
 
   bool get isExpired =>
-      DateTime.now().difference(fetchedAt) > _kAddressCacheTtl;
+      DateTime.now().difference(fetchedAt) > const Duration(minutes: 10);
 }
 
 class DriverDashboard extends StatefulWidget {
   const DriverDashboard({super.key});
 
   @override
-  State<DriverDashboard> createState() => _DriverDashboardState();
+  _DriverDashboardState createState() => _DriverDashboardState();
 }
 
 class _DriverDashboardState extends State<DriverDashboard>
     with SingleTickerProviderStateMixin {
-  late final String uid;
-  bool _isDark = false;
-  late final AnimationController _pulseController;
+  String uid = '';
+  late AnimationController _pulseController;
   Timer? _tripTimer;
-  Duration _currentTripTime = const Duration(minutes: 12);
+  StreamSubscription<QuerySnapshot>? _ridesSub;
+  LocationUpdater? _updater;
 
-  // Overlay & profile
+  bool _isVerified = true;
   bool _showDriverProfile = false;
+  bool _showAlert = false;
+  bool _isDark = false;
 
-  // Driver info
+  List<QueryDocumentSnapshot> _pendingRides = [];
+  final Map<String, AddressCacheEntry> _rideAddressCache = {};
+  Duration _currentTripTime = Duration.zero;
+
   String _driverName = '';
   String _driverPhotoUrl = '';
 
-  // Ride notifications
-  List<QueryDocumentSnapshot> _pendingRides = [];
-  StreamSubscription<QuerySnapshot>? _ridesSub;
-  LocationUpdater? _updater;
-  final Map<String, _AddressCacheEntry> _rideAddressCache = {};
-
-  // Form controllers
-  final TextEditingController fullNameCtrl = TextEditingController();
-  final TextEditingController phoneCtrl = TextEditingController();
-  final TextEditingController emailCtrl = TextEditingController();
-  final TextEditingController addressCtrl = TextEditingController();
-  final TextEditingController govIdCtrl = TextEditingController();
-  final TextEditingController licenseNoCtrl = TextEditingController();
-  final TextEditingController regNoCtrl = TextEditingController();
-  final TextEditingController makeModelCtrl = TextEditingController();
-  final TextEditingController yearCtrl = TextEditingController();
-  final TextEditingController emergencyNameCtrl = TextEditingController();
-  final TextEditingController emergencyPhoneCtrl = TextEditingController();
-
-  bool _showAlert = true;
+  // controllers for profile fields
+  final fullNameCtrl = TextEditingController();
+  final phoneCtrl = TextEditingController();
+  final emailCtrl = TextEditingController();
+  final addressCtrl = TextEditingController();
+  final govIdCtrl = TextEditingController();
+  final licenseNoCtrl = TextEditingController();
+  final regNoCtrl = TextEditingController();
+  final makeModelCtrl = TextEditingController();
+  final yearCtrl = TextEditingController();
+  final emergencyNameCtrl = TextEditingController();
+  final emergencyPhoneCtrl = TextEditingController();
 
   @override
   void initState() {
@@ -93,10 +88,25 @@ class _DriverDashboardState extends State<DriverDashboard>
 
   @override
   void dispose() {
+    // stop timers/listeners
     _pulseController.dispose();
     _tripTimer?.cancel();
     _ridesSub?.cancel();
     _updater?.stop();
+
+    // dispose controllers
+    fullNameCtrl.dispose();
+    phoneCtrl.dispose();
+    emailCtrl.dispose();
+    addressCtrl.dispose();
+    govIdCtrl.dispose();
+    licenseNoCtrl.dispose();
+    regNoCtrl.dispose();
+    makeModelCtrl.dispose();
+    yearCtrl.dispose();
+    emergencyNameCtrl.dispose();
+    emergencyPhoneCtrl.dispose();
+
     super.dispose();
   }
 
@@ -109,9 +119,14 @@ class _DriverDashboardState extends State<DriverDashboard>
         .doc(uid)
         .get();
     if (!doc.exists || doc.data() == null) {
-      setState(() => _showDriverProfile = true);
+      // no driver doc yet - keep fields empty, don't force an overlay here.
+      setState(() {
+        _isVerified = false;
+      });
+      return;
     } else {
       final data = doc.data()!;
+      final verified = data['verified'] == true;
       fullNameCtrl.text = data['fullName'] ?? '';
       phoneCtrl.text = data['phone'] ?? '';
       emailCtrl.text = data['email'] ?? '';
@@ -127,6 +142,7 @@ class _DriverDashboardState extends State<DriverDashboard>
       setState(() {
         _driverName = fullNameCtrl.text;
         _driverPhotoUrl = data['profilePhotoUrl'] ?? '';
+        _isVerified = verified;
       });
     }
   }
@@ -154,8 +170,14 @@ class _DriverDashboardState extends State<DriverDashboard>
   // -------------------- RIDE NOTIFICATIONS --------------------
   void _listenToPendingRides() {
     _ridesSub = RideService().listenToPendingRides().listen((snapshot) {
+      // Filter out rides the current driver has previously rejected
+      final filtered = snapshot.docs.where((doc) {
+        final data = doc.data() as Map<String, dynamic>;
+        final rejected = List<String>.from(data['rejectedDrivers'] ?? []);
+        return !rejected.contains(uid);
+      }).toList();
       setState(() {
-        _pendingRides = snapshot.docs;
+        _pendingRides = filtered;
         _showAlert = _pendingRides.isNotEmpty;
       });
 
@@ -177,7 +199,7 @@ class _DriverDashboardState extends State<DriverDashboard>
             return;
           }
           // Mark pending immediately to avoid duplicate requests
-          _rideAddressCache[key] = _AddressCacheEntry(
+          _rideAddressCache[key] = AddressCacheEntry(
             label: null,
             fetchedAt: DateTime.now(),
           );
@@ -189,7 +211,7 @@ class _DriverDashboardState extends State<DriverDashboard>
             return;
           }
           setState(() {
-            _rideAddressCache[key] = _AddressCacheEntry(
+            _rideAddressCache[key] = AddressCacheEntry(
               label: resolved,
               fetchedAt: DateTime.now(),
             );
@@ -233,7 +255,12 @@ class _DriverDashboardState extends State<DriverDashboard>
   }
 
   Future<void> _rejectRide(String rideId) async {
-    await RideService().rejectRide(rideId: rideId, driverId: '');
+    await RideService().rejectRide(rideId: rideId, driverId: uid);
+    // Immediately remove from local pending list to update UI
+    setState(() {
+      _pendingRides.removeWhere((d) => d.id == rideId);
+      _showAlert = _pendingRides.isNotEmpty;
+    });
     if (!mounted) return;
     ScaffoldMessenger.of(
       context,
@@ -246,6 +273,87 @@ class _DriverDashboardState extends State<DriverDashboard>
     final themeBackground = _isDark
         ? Colors.grey[900]!
         : const Color(0xFFF2F6F9);
+
+    // If the driver is not yet verified, show a waiting screen and allow
+    // them to edit/submit their profile instead of using the dashboard.
+    if (!_isVerified) {
+      return Scaffold(
+        backgroundColor: themeBackground,
+        appBar: _buildAppBar(),
+        body: Stack(
+          children: [
+            Center(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Container(
+                  constraints: const BoxConstraints(maxWidth: 520),
+                  padding: const EdgeInsets.all(20),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF7FAFB),
+                    borderRadius: BorderRadius.circular(16),
+                    boxShadow: const [
+                      BoxShadow(color: Colors.black12, blurRadius: 12),
+                    ],
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Text(
+                        'Profile pending verification',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      const Text(
+                        'Thanks for registering. Your profile is under review by an administrator.\nYou will be able to access the dashboard once verified.',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(color: Colors.grey),
+                      ),
+                      const SizedBox(height: 16),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: ElevatedButton(
+                              onPressed: () =>
+                                  setState(() => _showDriverProfile = true),
+                              child: const Text('Edit / Submit profile'),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: OutlinedButton(
+                              onPressed: () {
+                                Navigator.pushReplacementNamed(
+                                  context,
+                                  AppRoutes.login,
+                                );
+                              },
+                              child: const Text('Logout'),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+            if (_showDriverProfile)
+              DriverProfile(
+                uid: uid,
+                onSave: () => setState(() {
+                  _showDriverProfile = false;
+                  // re-check profile document after save
+                  _checkProfileCompletion();
+                }),
+                onSkip: () => setState(() => _showDriverProfile = false),
+              ),
+          ],
+        ),
+      );
+    }
 
     return Scaffold(
       backgroundColor: themeBackground,
@@ -400,8 +508,12 @@ class _DriverDashboardState extends State<DriverDashboard>
                   : null,
               child: _driverPhotoUrl.isEmpty
                   ? Text(
+                      // Safely compute initials (avoid range errors if name is short)
                       _driverName.isNotEmpty
-                          ? _driverName.substring(0, 2).toUpperCase()
+                          ? (_driverName.length >= 2
+                                    ? _driverName.substring(0, 2)
+                                    : _driverName.substring(0, 1))
+                                .toUpperCase()
                           : 'JD',
                       style: const TextStyle(
                         color: Colors.white,
@@ -578,9 +690,12 @@ class _DriverDashboardState extends State<DriverDashboard>
                     children: [
                       const Icon(Icons.timer, size: 18),
                       const SizedBox(width: 6),
-                      Text(
-                        _formatDuration(_currentTripTime),
-                        style: const TextStyle(fontWeight: FontWeight.bold),
+                      Flexible(
+                        child: Text(
+                          _formatDuration(_currentTripTime),
+                          style: const TextStyle(fontWeight: FontWeight.bold),
+                          overflow: TextOverflow.ellipsis,
+                        ),
                       ),
                     ],
                   ),

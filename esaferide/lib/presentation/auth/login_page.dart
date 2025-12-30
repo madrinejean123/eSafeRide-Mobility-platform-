@@ -171,7 +171,25 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
     } else if (role == 'student') {
       Navigator.pushReplacementNamed(context, AppRoutes.studentDashboard);
     } else {
-      Navigator.pushReplacementNamed(context, AppRoutes.driverDashboard);
+      // Driver role: check drivers/{uid} doc to determine verification status
+      try {
+        final dSnap = await _db.collection('drivers').doc(uid).get();
+        final verified = dSnap.exists && (dSnap.data()?['verified'] == true);
+        if (verified) {
+          Navigator.pushReplacementNamed(context, AppRoutes.driverDashboard);
+        } else {
+          // send to a dedicated pending-verification page where the driver
+          // can submit/edit their profile and wait for admin approval.
+          Navigator.pushReplacementNamed(
+            context,
+            AppRoutes.driverPending,
+            arguments: {'uid': uid},
+          );
+        }
+      } catch (e) {
+        // Fallback: open dashboard so users can still access profile
+        Navigator.pushReplacementNamed(context, AppRoutes.driverDashboard);
+      }
     }
   }
 

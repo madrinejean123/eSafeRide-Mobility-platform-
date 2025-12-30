@@ -5,6 +5,7 @@ import 'package:esaferide/presentation/auth/register_page.dart';
 import 'package:esaferide/presentation/auth/splash_page.dart';
 import 'package:esaferide/presentation/student/pages/student_dashboard.dart';
 import 'package:esaferide/presentation/driver/pages/driver_dashboard.dart';
+import 'package:esaferide/presentation/driver/driver_pending_page.dart';
 import 'package:esaferide/presentation/admin/admin_dashboard.dart';
 
 class AppRoutes {
@@ -16,6 +17,7 @@ class AppRoutes {
   // Dashboard routes
   static const String studentDashboard = '/student_dashboard';
   static const String driverDashboard = '/driver_dashboard';
+  static const String driverPending = '/driver_pending';
   static const String adminDashboard = '/admin_dashboard';
 
   static Map<String, WidgetBuilder> get routes {
@@ -25,6 +27,14 @@ class AppRoutes {
       register: (context) => const RegisterPage(),
       studentDashboard: (context) => const StudentDashboard(),
       driverDashboard: (context) => const DriverDashboard(),
+      driverPending: (context) {
+        final args =
+            ModalRoute.of(context)?.settings.arguments as Map<String, dynamic>?;
+        final uid = args != null && args['uid'] != null
+            ? args['uid'] as String
+            : '';
+        return DriverPendingPage(uid: uid);
+      },
       adminDashboard: (context) => const AdminDashboard(),
     };
   }

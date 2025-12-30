@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/material.dart';
@@ -140,75 +142,116 @@ class _DriverProfileState extends State<DriverProfile> {
   // ---- Save profile to Firestore ----
   Future<void> _saveProfile() async {
     if (!_formKey.currentState!.validate()) return;
-
     setState(() => _isSaving = true);
 
-    // Upload files
-    final idUrl = idFile != null
-        ? await _uploadFile(idFile!, 'drivers/${widget.uid}/id.jpg')
-        : null;
-    final licenseUrl = licenseFile != null
-        ? await _uploadFile(licenseFile!, 'drivers/${widget.uid}/license.jpg')
-        : null;
-    final profileUrl = profilePhoto != null
-        ? await _uploadFile(profilePhoto!, 'drivers/${widget.uid}/profile.jpg')
-        : null;
-    final motorcycleUrl = motorcyclePhoto != null
-        ? await _uploadFile(
-            motorcyclePhoto!,
-            'drivers/${widget.uid}/motorcycle.jpg',
-          )
-        : null;
-
-    // Build Firestore data
-    final data = {
-      'fullName': fullNameCtrl.text.trim(),
-      'phone': phoneCtrl.text.trim(),
-      'email': emailCtrl.text.trim(),
-      'address': addressCtrl.text.trim(),
-      'govId': govIdCtrl.text.trim(),
-      if (idUrl != null) 'govIdUrl': idUrl,
-      'licenseNo': licenseNoCtrl.text.trim(),
-      if (licenseUrl != null) 'licenseUrl': licenseUrl,
-      if (profileUrl != null) 'profilePhotoUrl': profileUrl,
-      'motorcycle': {
-        'regNo': regNoCtrl.text.trim(),
-        'makeModel': makeModelCtrl.text.trim(),
-        'year': yearCtrl.text.trim(),
-        if (motorcycleUrl != null) 'photoUrl': motorcycleUrl,
-      },
-      'emergencyContact': {
-        'name': emergencyNameCtrl.text.trim(),
-        'phone': emergencyPhoneCtrl.text.trim(),
-      },
-      'createdAt': FieldValue.serverTimestamp(),
-      // mark as pending verification so admins can review before activation
-      'status': 'pending',
-      'verified': false,
-      'submittedAt': FieldValue.serverTimestamp(),
-    };
-
+    bool success = false;
     try {
+      // Upload files with timeouts to avoid indefinite hanging
+      final idUrl = idFile != null
+          ? await _uploadFile(
+              idFile!,
+              'drivers/${widget.uid}/id.jpg',
+            ).timeout(const Duration(seconds: 30))
+          : null;
+      final licenseUrl = licenseFile != null
+          ? await _uploadFile(
+              licenseFile!,
+              'drivers/${widget.uid}/license.jpg',
+            ).timeout(const Duration(seconds: 30))
+          : null;
+      final profileUrl = profilePhoto != null
+          ? await _uploadFile(
+              profilePhoto!,
+              'drivers/${widget.uid}/profile.jpg',
+            ).timeout(const Duration(seconds: 30))
+          : null;
+      final motorcycleUrl = motorcyclePhoto != null
+          ? await _uploadFile(
+              motorcyclePhoto!,
+              'drivers/${widget.uid}/motorcycle.jpg',
+            ).timeout(const Duration(seconds: 30))
+          : null;
+
+      // Build Firestore data
+      final data = {
+        'fullName': fullNameCtrl.text.trim(),
+        'phone': phoneCtrl.text.trim(),
+        'email': emailCtrl.text.trim(),
+        'address': addressCtrl.text.trim(),
+        'govId': govIdCtrl.text.trim(),
+        if (idUrl != null) 'govIdUrl': idUrl,
+        'licenseNo': licenseNoCtrl.text.trim(),
+        if (licenseUrl != null) 'licenseUrl': licenseUrl,
+        if (profileUrl != null) 'profilePhotoUrl': profileUrl,
+        'motorcycle': {
+          'regNo': regNoCtrl.text.trim(),
+          'makeModel': makeModelCtrl.text.trim(),
+          'year': yearCtrl.text.trim(),
+          if (motorcycleUrl != null) 'photoUrl': motorcycleUrl,
+        },
+        'emergencyContact': {
+          'name': emergencyNameCtrl.text.trim(),
+          'phone': emergencyPhoneCtrl.text.trim(),
+        },
+        'createdAt': FieldValue.serverTimestamp(),
+        // mark as pending verification so admins can review before activation
+        'status': 'pending',
+        'verified': false,
+        'submittedAt': FieldValue.serverTimestamp(),
+      };
+
+      // Write driver doc with timeout
       await FirebaseFirestore.instance
           .collection('drivers')
           .doc(widget.uid)
-          .set(data, SetOptions(merge: true));
+          .set(data, SetOptions(merge: true))
+          .timeout(const Duration(seconds: 30));
 
-      if (!mounted) return;
-      setState(() => _isSaving = false);
+      // Create a simple admin notification document so admins can listen
+      // to new submissions. This is a lightweight approach; you can replace
+      // with Cloud Functions or a more advanced notifications schema later.
+      await FirebaseFirestore.instance
+          .collection('notifications')
+          .add({
+            'type': 'driver_submission',
+            'driverId': widget.uid,
+            'createdAt': FieldValue.serverTimestamp(),
+            'read': false,
+          })
+          .timeout(const Duration(seconds: 10));
 
-      // Notify user and close overlay
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Profile saved successfully')),
-      );
-      widget.onSave();
+      success = true;
+    } on TimeoutException catch (e) {
+      debugPrint('Timeout while saving profile: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Operation timed out. Check your connection and try again.',
+            ),
+          ),
+        );
+      }
     } catch (e) {
       debugPrint('Error saving profile: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Failed to save profile. Try again.')),
+        );
+      }
+    } finally {
       if (!mounted) return;
       setState(() => _isSaving = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Failed to save profile. Try again.')),
-      );
+      if (success) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Profile submitted — please wait for admin verification.',
+            ),
+          ),
+        );
+        widget.onSave();
+      }
     }
   }
 
