@@ -23,8 +23,8 @@ dependencies:
   flutter_facebook_auth: ^7.1.2
 
   # Media & files (SAFE)
-  image_picker: ^1.0.7          # ✅ FIXED
-  record: ^4.4.4
+  image_picker: ^1.0.7
+  record: ^6.1.2          # ✅ ONLY FIX (namespace support for AGP 8+)
   path_provider: ^2.1.2
   uuid: ^3.0.7
 
