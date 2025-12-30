@@ -12,41 +12,40 @@ dependencies:
     sdk: flutter
 
   # UI
-  cupertino_icons: 1.0.8
+  cupertino_icons: ^1.0.8
 
-  # Firebase
-  firebase_core: 4.3.0
-  firebase_auth: 6.1.3
-  cloud_firestore: 6.1.1
-  firebase_storage: 13.0.5
-  google_sign_in: 7.2.0
-  flutter_facebook_auth: 7.1.2
+  # Firebase (modern, compatible with Dart 3.8)
+  firebase_core: ^4.3.0
+  firebase_auth: ^6.1.3
+  cloud_firestore: ^6.1.1
+  firebase_storage: ^13.0.5
+  google_sign_in: ^7.2.0
+  flutter_facebook_auth: ^7.1.2
 
   # Media & files
-  image_picker: 0.8.13
-  record: 4.4.4
-  path_provider: 2.2.19
-  uuid: 3.0.7
+  image_picker: ^0.8.13
+  record: ^4.4.4
+  path_provider: ^2.2.19
+  uuid: ^3.0.7
 
   # Location & maps
-  geolocator: 9.0.2
-  geocoding: 2.2.2
-  google_maps_flutter: 2.18.3
+  geolocator: ^9.0.2
+  geocoding: ^2.2.2
+  google_maps_flutter: ^2.7.0   # ✅ FIXED
 
   # Network & permissions
-  http: 1.6.0
-  permission_handler: 11.4.0
+  http: ^1.6.0
+  permission_handler: ^11.4.0
 
-  # JS interop for web-specific implementations
-  js: 0.6.7
-  rxdart: 0.28.0
+  # Web / streams
+  js: ^0.6.7
+  rxdart: ^0.28.0
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
 
-  # Match last working version
-  flutter_lints: 5.0.0
+  flutter_lints: ^5.0.0
 
 flutter:
   uses-material-design: true
