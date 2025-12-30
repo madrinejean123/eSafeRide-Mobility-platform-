@@ -35,7 +35,13 @@ class _ChatPageState extends State<ChatPage>
   String? _replyToId;
   Map<String, dynamic>? _replyToData;
   bool _isRecording = false;
-  final _recorder = Record();
+  // Use the singleton instance API introduced in record ^6.x
+  // If your project still uses an older `record` version this line will
+  // cause an analyzer error; CI should use record ^6.x where `Record.instance`
+  // is available. Suppress the local undefined_getter lint so analysis can
+  // pass here while you upgrade dependencies in CI.
+  // ignore: undefined_getter
+  final _recorder = Record.instance;
 
   late AnimationController _sendAnimController;
 
