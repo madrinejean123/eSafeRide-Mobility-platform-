@@ -24,6 +24,7 @@ class ChatService {
         'lastMessage': '',
         'lastMessageTime': FieldValue.serverTimestamp(),
         'typing': {},
+        'unreadCounts': {a: 0, b: 0},
       });
     }
     return chatId;
@@ -44,6 +45,23 @@ class ChatService {
         .snapshots();
   }
 
+  /// Stream the total unread message count across all chats for a user.
+  Stream<int> streamTotalUnreadForUser(String uid) {
+    return _chats.where('participants', arrayContains: uid).snapshots().map((
+      snap,
+    ) {
+      var total = 0;
+      for (final doc in snap.docs) {
+        final data = doc.data() as Map<String, dynamic>?;
+        if (data == null) continue;
+        final unread = (data['unreadCounts'] as Map?)
+            ?.cast<String, dynamic>()[uid];
+        if (unread is int) total += unread;
+      }
+      return total;
+    });
+  }
+
   Future<void> sendMessage({
     required String chatId,
     required String senderId,
@@ -59,10 +77,23 @@ class ChatService {
       'timestamp': now,
       'seen': false,
     });
-    await _chats.doc(chatId).update({
-      'lastMessage': text ?? (imageUrl != null ? 'Image' : ''),
+    final chatDoc = _chats.doc(chatId);
+    // update lastMessage and increment unread counts for other participants
+    final chatSnap = await chatDoc.get();
+    final chatData = chatSnap.data() as Map<String, dynamic>?;
+    final last = text ?? (imageUrl != null ? 'Image' : '');
+    final updateMap = <String, dynamic>{
+      'lastMessage': last,
       'lastMessageTime': now,
-    });
+    };
+    if (chatData != null && chatData['participants'] is List) {
+      final parts = List<String>.from(chatData['participants'] as List);
+      for (final p in parts) {
+        if (p == senderId) continue;
+        updateMap['unreadCounts.$p'] = FieldValue.increment(1);
+      }
+    }
+    await chatDoc.update(updateMap);
   }
 
   Future<void> setTyping(String chatId, String uid, bool typing) async {
@@ -80,6 +111,12 @@ class ChatService {
       final data = d.data();
       if (data['senderId'] == myUid) continue;
       await d.reference.update({'seen': true});
+    }
+    // reset unread count for this user on the chat doc
+    try {
+      await _chats.doc(chatId).update({'unreadCounts.$myUid': 0});
+    } catch (_) {
+      // ignore
     }
   }
 }

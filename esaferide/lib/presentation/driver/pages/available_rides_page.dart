@@ -54,6 +54,7 @@ class _AvailableRidesPageState extends State<AvailableRidesPage> {
     _updater = LocationUpdater(rideId: rideId);
     await _updater?.start();
     // ensure a chat exists between driver and student for this ride
+    String? chatId;
     try {
       final rideDoc = await FirebaseFirestore.instance
           .collection('rides')
@@ -62,7 +63,7 @@ class _AvailableRidesPageState extends State<AvailableRidesPage> {
       final rideData = rideDoc.data();
       final sid = rideData != null ? rideData['studentId'] as String? : null;
       if (sid != null && sid.isNotEmpty) {
-        await ChatService().createChatIfNotExists(a: user.uid, b: sid);
+        chatId = await ChatService().createChatIfNotExists(a: user.uid, b: sid);
       }
     } catch (e) {
       // ignore chat creation errors; it is non-fatal
@@ -74,7 +75,9 @@ class _AvailableRidesPageState extends State<AvailableRidesPage> {
     // Navigate to ride tracking/map so driver can see pickup and route
     if (!mounted) return;
     navigator.push(
-      MaterialPageRoute(builder: (_) => DriverRideTrackingPage(rideId: rideId)),
+      MaterialPageRoute(
+        builder: (_) => DriverRideTrackingPage(rideId: rideId, chatId: chatId),
+      ),
     );
   }
 

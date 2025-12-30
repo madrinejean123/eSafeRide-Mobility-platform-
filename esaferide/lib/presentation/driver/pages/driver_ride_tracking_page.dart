@@ -17,8 +17,9 @@ import '../../../data/services/ride_service.dart';
 
 class DriverRideTrackingPage extends StatefulWidget {
   final String rideId;
+  final String? chatId;
 
-  const DriverRideTrackingPage({super.key, required this.rideId});
+  const DriverRideTrackingPage({super.key, required this.rideId, this.chatId});
 
   @override
   State<DriverRideTrackingPage> createState() => _DriverRideTrackingPageState();
@@ -487,19 +488,22 @@ class _DriverRideTrackingPageState extends State<DriverRideTrackingPage> {
         IconButton(
           tooltip: 'Chat with student',
           onPressed: () {
-            if (_studentId == null || _currentUserId == null) {
+            if ((_studentId == null && widget.chatId == null) ||
+                _currentUserId == null) {
               ScaffoldMessenger.of(context).showSnackBar(
                 const SnackBar(content: Text('No student assigned yet')),
               );
               return;
             }
-            final chatId = ChatService.chatIdFor(_currentUserId!, _studentId!);
+            final chatId =
+                widget.chatId ??
+                ChatService.chatIdFor(_currentUserId!, _studentId!);
             Navigator.push(
               context,
               MaterialPageRoute(
                 builder: (_) => ChatPage(
                   chatId: chatId,
-                  otherUserId: _studentId!,
+                  otherUserId: _studentId ?? '',
                   otherUserName: _studentName,
                 ),
               ),
@@ -619,19 +623,56 @@ class _DriverRideTrackingPageState extends State<DriverRideTrackingPage> {
             ),
           ),
           Expanded(
-            child: GoogleMap(
-              initialCameraPosition: CameraPosition(
-                target: _lastDriverLatLng ?? _pickupLatLng ?? _defaultPosition,
-                zoom: 15,
-              ),
-              onMapCreated: (controller) => _mapController = controller,
-              markers: markers,
-              polylines: polylines,
-              mapType: MapType.normal,
-              buildingsEnabled: true,
-              zoomControlsEnabled: true,
-              myLocationButtonEnabled: true,
-              myLocationEnabled: false,
+            child: Stack(
+              children: [
+                GoogleMap(
+                  initialCameraPosition: CameraPosition(
+                    target:
+                        _lastDriverLatLng ?? _pickupLatLng ?? _defaultPosition,
+                    zoom: 15,
+                  ),
+                  onMapCreated: (controller) => _mapController = controller,
+                  markers: markers,
+                  polylines: polylines,
+                  mapType: MapType.normal,
+                  buildingsEnabled: true,
+                  zoomControlsEnabled: true,
+                  myLocationButtonEnabled: true,
+                  myLocationEnabled: false,
+                ),
+                Positioned(
+                  right: 12,
+                  bottom: 12,
+                  child: FloatingActionButton.small(
+                    heroTag: 'tracking_chat',
+                    onPressed: () {
+                      if ((_studentId == null && widget.chatId == null) ||
+                          _currentUserId == null) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('No student assigned yet'),
+                          ),
+                        );
+                        return;
+                      }
+                      final chatId =
+                          widget.chatId ??
+                          ChatService.chatIdFor(_currentUserId!, _studentId!);
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => ChatPage(
+                            chatId: chatId,
+                            otherUserId: _studentId ?? '',
+                            otherUserName: _studentName,
+                          ),
+                        ),
+                      );
+                    },
+                    child: const Icon(Icons.chat),
+                  ),
+                ),
+              ],
             ),
           ),
         ],

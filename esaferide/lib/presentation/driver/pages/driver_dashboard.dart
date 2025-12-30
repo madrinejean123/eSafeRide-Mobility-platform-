@@ -14,6 +14,7 @@ import 'package:esaferide/presentation/chat/user_list_page.dart';
 import 'package:esaferide/presentation/driver/pages/driver_ride_tracking_page.dart';
 
 import '../../../data/services/ride_service.dart';
+import '../../../data/services/chat_service.dart';
 import '../../../data/services/geocode_service.dart'; // ✅ WEB + MOBILE SAFE
 import 'available_rides_page.dart';
 
@@ -51,7 +52,7 @@ class _DriverDashboardState extends State<DriverDashboard>
   bool get isWeb => kIsWeb;
   bool get isMobile => !kIsWeb;
 
-  bool _isDark = false;
+  final bool _isDark = false;
 
   List<QueryDocumentSnapshot> _pendingRides = [];
   final Map<String, AddressCacheEntry> _rideAddressCache = {};
@@ -317,14 +318,6 @@ class _DriverDashboardState extends State<DriverDashboard>
                   ),
                   const Spacer(),
                   IconButton(
-                    tooltip: 'Toggle theme',
-                    onPressed: () => setState(() => _isDark = !_isDark),
-                    icon: Icon(
-                      _isDark ? Icons.dark_mode : Icons.light_mode,
-                      color: Colors.white,
-                    ),
-                  ),
-                  IconButton(
                     tooltip: 'Notifications',
                     onPressed: () {
                       showModalBottomSheet<void>(
@@ -359,17 +352,56 @@ class _DriverDashboardState extends State<DriverDashboard>
                     },
                     icon: const Icon(Icons.notifications, color: Colors.white),
                   ),
-                  IconButton(
-                    tooltip: 'Messages',
-                    onPressed: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) => const ConversationListPage(),
-                        ),
+                  StreamBuilder<int>(
+                    stream: ChatService().streamTotalUnreadForUser(uid),
+                    builder: (context, snapshot) {
+                      final unread = snapshot.data ?? 0;
+                      return Stack(
+                        alignment: Alignment.center,
+                        children: [
+                          IconButton(
+                            tooltip: 'Messages',
+                            onPressed: () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => const ConversationListPage(),
+                                ),
+                              );
+                            },
+                            icon: const Icon(
+                              Icons.chat_bubble,
+                              color: Colors.white,
+                            ),
+                          ),
+                          if (unread > 0)
+                            Positioned(
+                              right: 6,
+                              top: 8,
+                              child: Container(
+                                padding: const EdgeInsets.all(4),
+                                decoration: BoxDecoration(
+                                  color: Colors.red,
+                                  shape: BoxShape.circle,
+                                ),
+                                constraints: const BoxConstraints(
+                                  minWidth: 20,
+                                  minHeight: 20,
+                                ),
+                                child: Center(
+                                  child: Text(
+                                    unread > 99 ? '99+' : unread.toString(),
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 11,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                        ],
                       );
                     },
-                    icon: const Icon(Icons.chat_bubble, color: Colors.white),
                   ),
                   IconButton(
                     tooltip: 'Logout',
