@@ -144,15 +144,21 @@ class _ConversationListPageState extends State<ConversationListPage> {
                 subtitle: Text(subtitle),
                 trailing: Text(timeStr, style: const TextStyle(fontSize: 12)),
                 onTap: () async {
+                  // Capture navigator before any await to avoid using BuildContext
+                  // across async gaps (lint: use_build_context_synchronously).
+                  final navigator = Navigator.of(context);
+
                   // Ensure we have the resolved human-readable name before opening chat
                   if (!_nameCache.containsKey(other) &&
                       !_resolving.contains(other)) {
                     await _resolveName(other);
                   }
+
+                  if (!mounted) return;
+
                   final resolved =
                       _nameCache[other] ?? (data['title'] as String?) ?? other;
-                  Navigator.push(
-                    context,
+                  navigator.push(
                     MaterialPageRoute(
                       builder: (_) => ChatPage(
                         chatId: doc.id,

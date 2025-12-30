@@ -2,7 +2,6 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:esaferide/presentation/shared/app_scaffold.dart';
 import 'package:esaferide/presentation/shared/styles.dart';
-import 'package:esaferide/data/services/geocode_service.dart';
 import 'package:esaferide/presentation/admin/admin_gate.dart';
 
 class AdminRidesPage extends StatelessWidget {

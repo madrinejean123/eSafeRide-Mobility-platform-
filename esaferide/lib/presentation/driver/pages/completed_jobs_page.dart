@@ -23,12 +23,16 @@ class _CompletedJobsPageState extends State<CompletedJobsPage> {
           .doc(id)
           .get();
       final data = doc.data();
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
       setState(() {
         _nameCache[id] = (data?['fullName'] as String?) ?? 'Student';
       });
     } catch (_) {
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
       setState(() {
         _nameCache[id] = 'Student';
       });
@@ -40,8 +44,9 @@ class _CompletedJobsPageState extends State<CompletedJobsPage> {
   @override
   Widget build(BuildContext context) {
     final uid = FirebaseAuth.instance.currentUser?.uid;
-    if (uid == null)
+    if (uid == null) {
       return const Scaffold(body: Center(child: Text('Sign in required')));
+    }
 
     final tripsCol = FirebaseFirestore.instance
         .collection('trips')
