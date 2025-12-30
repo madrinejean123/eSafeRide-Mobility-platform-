@@ -87,6 +87,17 @@ class RideService {
     return _ridesRef.doc(rideId).snapshots();
   }
 
+  /// Find an active ride ID assigned to the given driver (accepted/on_the_way/trip_started)
+  Future<String?> findActiveRideForDriver(String driverId) async {
+    final q = await _ridesRef
+        .where('driverId', isEqualTo: driverId)
+        .where('status', whereIn: ['accepted', 'on_the_way', 'trip_started'])
+        .limit(1)
+        .get();
+    if (q.docs.isEmpty) return null;
+    return q.docs.first.id;
+  }
+
   /// Update the driver's current location for the ride. Also optionally advance status.
   Future<void> updateDriverLocation({
     required String rideId,
@@ -121,5 +132,44 @@ class RideService {
       'status': status,
       'updatedAt': FieldValue.serverTimestamp(),
     });
+  }
+
+  /// Mark a ride as completed and persist a trip summary in `trips`.
+  /// Returns true if operation succeeded.
+  Future<bool> completeTrip({
+    required String rideId,
+    required String driverId,
+    required int durationSeconds,
+    required double fare,
+  }) async {
+    final docRef = _ridesRef.doc(rideId);
+    try {
+      final snap = await docRef.get();
+      final data = snap.data() as Map<String, dynamic>?;
+      if (data == null) return false;
+
+      // create a trip summary
+      final tripsRef = FirebaseFirestore.instance.collection('trips');
+      await tripsRef.add({
+        'rideId': rideId,
+        'driverId': driverId,
+        'studentId': data['studentId'],
+        'durationSeconds': durationSeconds,
+        'fare': fare,
+        'pickup': data['pickup'],
+        'destination': data['destination'],
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+
+      // update ride status to completed
+      await docRef.update({
+        'status': 'completed',
+        'completedAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+      return true;
+    } catch (e) {
+      return false;
+    }
   }
 }

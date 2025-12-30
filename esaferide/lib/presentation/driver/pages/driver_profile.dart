@@ -240,18 +240,22 @@ class _DriverProfileState extends State<DriverProfile> {
         );
       }
     } finally {
-      if (!mounted) return;
-      setState(() => _isSaving = false);
-      if (success) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'Profile submitted — please wait for admin verification.',
-            ),
+      // Always clear the saving flag if the widget is still mounted.
+      if (mounted) setState(() => _isSaving = false);
+    }
+
+    // Handle success UI/navigation after the try/catch/finally block to
+    // avoid control-flow changes inside `finally` and to ensure we don't
+    // use the BuildContext when the widget is unmounted.
+    if (success && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Profile submitted — please wait for admin verification.',
           ),
-        );
-        widget.onSave();
-      }
+        ),
+      );
+      widget.onSave();
     }
   }
 

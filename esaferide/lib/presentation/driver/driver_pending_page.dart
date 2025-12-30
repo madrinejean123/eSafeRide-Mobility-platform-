@@ -13,6 +13,23 @@ class DriverPendingPage extends StatefulWidget {
 
 class _DriverPendingPageState extends State<DriverPendingPage> {
   bool _showDriverProfile = false;
+  late String _uid;
+
+  @override
+  void initState() {
+    super.initState();
+    // Prefer the uid passed via arguments; otherwise fall back to the signed-in user.
+    _uid = widget.uid.isNotEmpty
+        ? widget.uid
+        : (FirebaseAuth.instance.currentUser?.uid ?? '');
+
+    // If we still don't have a uid, redirect to login to avoid showing an empty page.
+    if (_uid.isEmpty) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        Navigator.pushReplacementNamed(context, AppRoutes.login);
+      });
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -92,7 +109,7 @@ class _DriverPendingPageState extends State<DriverPendingPage> {
           ),
           if (_showDriverProfile)
             DriverProfile(
-              uid: widget.uid,
+              uid: _uid,
               onSave: () => setState(() => _showDriverProfile = false),
               onSkip: () => setState(() => _showDriverProfile = false),
             ),

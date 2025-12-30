@@ -2,15 +2,22 @@ import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
+// desktop pointer helpers were removed; keep imports minimal
+
 import 'package:esaferide/config/routes.dart';
 import 'package:esaferide/presentation/auth/login_page.dart';
 import 'package:esaferide/presentation/driver/pages/driver_profile.dart';
+import 'package:esaferide/presentation/shared/styles.dart';
+import 'package:esaferide/presentation/chat/conversation_list_page.dart';
+import 'package:esaferide/presentation/chat/user_list_page.dart';
+import 'package:esaferide/presentation/driver/pages/driver_ride_tracking_page.dart';
+
 import '../../../data/services/ride_service.dart';
-import '../../../data/services/location_updater.dart';
-import '../../../data/services/geocode_service_io.dart';
+import '../../../data/services/geocode_service.dart'; // ✅ WEB + MOBILE SAFE
 import 'available_rides_page.dart';
 
-// Small cache entry for resolved addresses
+/// -------------------- ADDRESS CACHE --------------------
 class AddressCacheEntry {
   final String? label;
   final DateTime fetchedAt;
@@ -21,34 +28,47 @@ class AddressCacheEntry {
       DateTime.now().difference(fetchedAt) > const Duration(minutes: 10);
 }
 
+/// -------------------- DRIVER DASHBOARD --------------------
 class DriverDashboard extends StatefulWidget {
   const DriverDashboard({super.key});
 
   @override
-  _DriverDashboardState createState() => _DriverDashboardState();
+  State<DriverDashboard> createState() => _DriverDashboardState();
 }
 
 class _DriverDashboardState extends State<DriverDashboard>
     with SingleTickerProviderStateMixin {
   String uid = '';
+
   late AnimationController _pulseController;
   Timer? _tripTimer;
   StreamSubscription<QuerySnapshot>? _ridesSub;
-  LocationUpdater? _updater;
 
-  bool _isVerified = true;
-  bool _showDriverProfile = false;
-  bool _showAlert = false;
+  bool _tripActive = false;
+
+  int _prevPendingCount = 0;
+
+  bool get isWeb => kIsWeb;
+  bool get isMobile => !kIsWeb;
+
   bool _isDark = false;
 
   List<QueryDocumentSnapshot> _pendingRides = [];
   final Map<String, AddressCacheEntry> _rideAddressCache = {};
+
   Duration _currentTripTime = Duration.zero;
+
+  int _bottomIndex = 0;
+
+  // visible driver stats
+  int _tripsCompleted = 2;
+  double _earnings = 124.0;
+  final double _rating = 4.8;
 
   String _driverName = '';
   String _driverPhotoUrl = '';
 
-  // controllers for profile fields
+  // -------------------- CONTROLLERS --------------------
   final fullNameCtrl = TextEditingController();
   final phoneCtrl = TextEditingController();
   final emailCtrl = TextEditingController();
@@ -61,9 +81,11 @@ class _DriverDashboardState extends State<DriverDashboard>
   final emergencyNameCtrl = TextEditingController();
   final emergencyPhoneCtrl = TextEditingController();
 
+  // -------------------- INIT --------------------
   @override
   void initState() {
     super.initState();
+
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -76,25 +98,30 @@ class _DriverDashboardState extends State<DriverDashboard>
     }
 
     uid = user.uid.trim();
+
     _pulseController = AnimationController(
       vsync: this,
       duration: const Duration(seconds: 2),
-    )..repeat(reverse: true);
+    );
 
-    _startTripCountdown();
-    _checkProfileCompletion();
-    _listenToPendingRides();
+    if (isMobile) {
+      _pulseController.repeat(reverse: true);
+    }
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _checkProfileCompletion();
+      _listenToPendingRides();
+    });
   }
 
+  // -------------------- DISPOSE --------------------
   @override
   void dispose() {
-    // stop timers/listeners
     _pulseController.dispose();
     _tripTimer?.cancel();
     _ridesSub?.cancel();
-    _updater?.stop();
+    // LocationUpdater is started from AvailableRidesPage when a ride is accepted.
 
-    // dispose controllers
     fullNameCtrl.dispose();
     phoneCtrl.dispose();
     emailCtrl.dispose();
@@ -110,7 +137,7 @@ class _DriverDashboardState extends State<DriverDashboard>
     super.dispose();
   }
 
-  // -------------------- PROFILE LOGIC --------------------
+  // -------------------- PROFILE --------------------
   Future<void> _checkProfileCompletion() async {
     if (uid.isEmpty) return;
 
@@ -118,153 +145,135 @@ class _DriverDashboardState extends State<DriverDashboard>
         .collection('drivers')
         .doc(uid)
         .get();
-    if (!doc.exists || doc.data() == null) {
-      // no driver doc yet - keep fields empty, don't force an overlay here.
-      setState(() {
-        _isVerified = false;
-      });
-      return;
-    } else {
-      final data = doc.data()!;
-      final verified = data['verified'] == true;
-      fullNameCtrl.text = data['fullName'] ?? '';
-      phoneCtrl.text = data['phone'] ?? '';
-      emailCtrl.text = data['email'] ?? '';
-      addressCtrl.text = data['address'] ?? '';
-      govIdCtrl.text = data['govId'] ?? '';
-      licenseNoCtrl.text = data['licenseNo'] ?? '';
-      regNoCtrl.text = data['motorcycle']?['regNo'] ?? '';
-      makeModelCtrl.text = data['motorcycle']?['makeModel'] ?? '';
-      yearCtrl.text = data['motorcycle']?['year'] ?? '';
-      emergencyNameCtrl.text = data['emergencyContact']?['name'] ?? '';
-      emergencyPhoneCtrl.text = data['emergencyContact']?['phone'] ?? '';
 
-      setState(() {
-        _driverName = fullNameCtrl.text;
-        _driverPhotoUrl = data['profilePhotoUrl'] ?? '';
-        _isVerified = verified;
-      });
-    }
+    if (!doc.exists || doc.data() == null) return;
+
+    final data = doc.data()!;
+
+    fullNameCtrl.text = data['fullName'] ?? '';
+    phoneCtrl.text = data['phone'] ?? '';
+    emailCtrl.text = data['email'] ?? '';
+    addressCtrl.text = data['address'] ?? '';
+    govIdCtrl.text = data['govId'] ?? '';
+    licenseNoCtrl.text = data['licenseNo'] ?? '';
+
+    regNoCtrl.text = data['motorcycle']?['regNo'] ?? '';
+    makeModelCtrl.text = data['motorcycle']?['makeModel'] ?? '';
+    yearCtrl.text = data['motorcycle']?['year'] ?? '';
+
+    emergencyNameCtrl.text = data['emergencyContact']?['name'] ?? '';
+    emergencyPhoneCtrl.text = data['emergencyContact']?['phone'] ?? '';
+
+    if (!mounted) return;
+
+    setState(() {
+      _driverName = fullNameCtrl.text;
+      _driverPhotoUrl = data['profilePhotoUrl'] ?? '';
+    });
   }
 
-  // -------------------- TRIP COUNTDOWN --------------------
-  void _startTripCountdown() {
+  // -------------------- TRIP TIMER (start/stop) --------------------
+  void _startTrip() {
+    if (_tripActive) return;
     _tripTimer?.cancel();
-    _tripTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      if (_currentTripTime.inSeconds <= 0) {
-        timer.cancel();
-      } else {
-        setState(() {
-          _currentTripTime = Duration(seconds: _currentTripTime.inSeconds - 1);
-        });
-      }
+    setState(() {
+      _tripActive = true;
+      _currentTripTime = Duration.zero;
+    });
+    _tripTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted) return;
+      setState(() {
+        _currentTripTime = Duration(seconds: _currentTripTime.inSeconds + 1);
+      });
+    });
+  }
+
+  void _endTrip() {
+    if (!_tripActive) return;
+    _tripTimer?.cancel();
+    // compute a simple fare and increment trip count
+    final completed = _currentTripTime;
+    final fare = 5.0 + (completed.inMinutes * 0.5);
+    setState(() {
+      _tripActive = false;
+      _tripsCompleted = _tripsCompleted + 1;
+      _earnings = double.parse((_earnings + fare).toStringAsFixed(2));
+      // clear the current trip timer display
+      _currentTripTime = Duration.zero;
     });
   }
 
   String _formatDuration(Duration d) {
-    final minutes = d.inMinutes.remainder(60).toString().padLeft(2, '0');
-    final seconds = d.inSeconds.remainder(60).toString().padLeft(2, '0');
-    return '$minutes:$seconds';
+    final m = d.inMinutes.remainder(60).toString().padLeft(2, '0');
+    final s = d.inSeconds.remainder(60).toString().padLeft(2, '0');
+    return '$m:$s';
   }
 
-  // -------------------- RIDE NOTIFICATIONS --------------------
+  // -------------------- RIDES --------------------
   void _listenToPendingRides() {
     _ridesSub = RideService().listenToPendingRides().listen((snapshot) {
-      // Filter out rides the current driver has previously rejected
       final filtered = snapshot.docs.where((doc) {
         final data = doc.data() as Map<String, dynamic>;
         final rejected = List<String>.from(data['rejectedDrivers'] ?? []);
         return !rejected.contains(uid);
       }).toList();
-      setState(() {
-        _pendingRides = filtered;
-        _showAlert = _pendingRides.isNotEmpty;
-      });
 
-      // For each pending ride, attempt to resolve pickup/destination labels
+      if (!mounted) return;
+
+      setState(() => _pendingRides = filtered);
+
+      if (filtered.isNotEmpty && _prevPendingCount == 0) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'You have ${filtered.length} pending ride request(s)',
+            ),
+            action: SnackBarAction(
+              label: 'View',
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const AvailableRidesPage()),
+                );
+              },
+            ),
+          ),
+        );
+      }
+      _prevPendingCount = filtered.length;
+
       for (final rideDoc in snapshot.docs) {
         final data = rideDoc.data() as Map<String, dynamic>;
         final pickup = data['pickup'] as GeoPoint?;
         final dest = data['destination'] as GeoPoint?;
-        final pickupKey = '${rideDoc.id}_pickup';
-        final destKey = '${rideDoc.id}_dest';
 
-        // helper to start resolution if needed
-        Future<void> maybeResolve(GeoPoint gp, String key) async {
-          final existing = _rideAddressCache[key];
-          // If we have an entry and it's pending (label==null), skip.
-          if (existing != null &&
-              existing.label == null &&
-              !existing.isExpired) {
-            return;
-          }
-          // Mark pending immediately to avoid duplicate requests
-          _rideAddressCache[key] = AddressCacheEntry(
-            label: null,
-            fetchedAt: DateTime.now(),
-          );
+        Future<void> resolve(GeoPoint gp, String key) async {
           final label = await resolveLabel(gp.latitude, gp.longitude);
-          final resolved = (label == null || label.isEmpty)
-              ? '${gp.latitude},${gp.longitude}'
-              : label;
-          if (!mounted) {
-            return;
-          }
+          if (!mounted) return;
+
           setState(() {
             _rideAddressCache[key] = AddressCacheEntry(
-              label: resolved,
+              label: label ?? '${gp.latitude},${gp.longitude}',
               fetchedAt: DateTime.now(),
             );
           });
         }
 
         if (pickup != null) {
-          final entry = _rideAddressCache[pickupKey];
-          if (entry == null || entry.isExpired) {
-            // start resolution but do not await here
-            maybeResolve(pickup, pickupKey);
+          final k = '${rideDoc.id}_pickup';
+          if (_rideAddressCache[k]?.isExpired ?? true) {
+            resolve(pickup, k);
           }
         }
 
         if (dest != null) {
-          final entry = _rideAddressCache[destKey];
-          if (entry == null || entry.isExpired) {
-            maybeResolve(dest, destKey);
+          final k = '${rideDoc.id}_dest';
+          if (_rideAddressCache[k]?.isExpired ?? true) {
+            resolve(dest, k);
           }
         }
       }
     });
-  }
-
-  Future<void> _acceptRide(String rideId) async {
-    final ok = await RideService().acceptRide(rideId: rideId, driverId: uid);
-    if (ok) {
-      _updater?.stop();
-      _updater = LocationUpdater(rideId: rideId);
-      await _updater?.start();
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Ride accepted. Sharing location...')),
-      );
-    } else {
-      if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Ride already taken')));
-    }
-  }
-
-  Future<void> _rejectRide(String rideId) async {
-    await RideService().rejectRide(rideId: rideId, driverId: uid);
-    // Immediately remove from local pending list to update UI
-    setState(() {
-      _pendingRides.removeWhere((d) => d.id == rideId);
-      _showAlert = _pendingRides.isNotEmpty;
-    });
-    if (!mounted) return;
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(const SnackBar(content: Text('Ride rejected')));
   }
 
   // -------------------- UI --------------------
@@ -274,202 +283,175 @@ class _DriverDashboardState extends State<DriverDashboard>
         ? Colors.grey[900]!
         : const Color(0xFFF2F6F9);
 
-    // If the driver is not yet verified, show a waiting screen and allow
-    // them to edit/submit their profile instead of using the dashboard.
-    if (!_isVerified) {
-      return Scaffold(
-        backgroundColor: themeBackground,
-        appBar: _buildAppBar(),
-        body: Stack(
-          children: [
-            Center(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Container(
-                  constraints: const BoxConstraints(maxWidth: 520),
-                  padding: const EdgeInsets.all(20),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFF7FAFB),
-                    borderRadius: BorderRadius.circular(16),
-                    boxShadow: const [
-                      BoxShadow(color: Colors.black12, blurRadius: 12),
-                    ],
-                  ),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Text(
-                        'Profile pending verification',
-                        style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      const Text(
-                        'Thanks for registering. Your profile is under review by an administrator.\nYou will be able to access the dashboard once verified.',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(color: Colors.grey),
-                      ),
-                      const SizedBox(height: 16),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: ElevatedButton(
-                              onPressed: () =>
-                                  setState(() => _showDriverProfile = true),
-                              child: const Text('Edit / Submit profile'),
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: OutlinedButton(
-                              onPressed: () {
-                                Navigator.pushReplacementNamed(
-                                  context,
-                                  AppRoutes.login,
-                                );
-                              },
-                              child: const Text('Logout'),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-            if (_showDriverProfile)
-              DriverProfile(
-                uid: uid,
-                onSave: () => setState(() {
-                  _showDriverProfile = false;
-                  // re-check profile document after save
-                  _checkProfileCompletion();
-                }),
-                onSkip: () => setState(() => _showDriverProfile = false),
-              ),
-          ],
-        ),
-      );
-    }
-
     return Scaffold(
       backgroundColor: themeBackground,
-      appBar: _buildAppBar(),
-      body: Stack(
-        children: [
-          SafeArea(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  _buildDriverProfileCard(),
-                  const SizedBox(height: 18),
-                  _buildQuickStats(),
-                  const SizedBox(height: 18),
-                  _buildQuickActions(),
-                  const SizedBox(height: 18),
-                  _buildLiveTripCard(),
-                  const SizedBox(height: 18),
-                  _buildEarningsCard(),
-                  const SizedBox(height: 18),
-                  _buildViewAvailableRidesButton(),
-                ],
+      appBar: PreferredSize(
+        preferredSize: const Size.fromHeight(70),
+        child: Container(
+          decoration: BoxDecoration(
+            gradient: kAppGradient,
+            borderRadius: const BorderRadius.only(
+              bottomLeft: Radius.circular(24),
+              bottomRight: Radius.circular(24),
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withAlpha((0.15 * 255).round()),
+                blurRadius: 6,
+                offset: const Offset(0, 3),
               ),
-            ),
+            ],
           ),
-          if (_showAlert && _pendingRides.isNotEmpty) _buildRideNotifications(),
-
-          if (_showDriverProfile)
-            DriverProfile(
-              uid: uid,
-              onSave: () => setState(() => _showDriverProfile = false),
-              onSkip: () => setState(() => _showDriverProfile = false),
-            ),
-        ],
-      ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () {},
-        icon: const Icon(Icons.safety_check),
-        label: const Text('Emergency'),
-        backgroundColor: Colors.redAccent,
-      ),
-      bottomNavigationBar: _buildBottomNav(),
-    );
-  }
-
-  // -------------------- APP BAR --------------------
-  PreferredSizeWidget _buildAppBar() {
-    return PreferredSize(
-      preferredSize: const Size.fromHeight(70),
-      child: Container(
-        decoration: BoxDecoration(
-          gradient: const LinearGradient(
-            colors: [Color(0xFF3E71DF), Color(0xFF00BFA5)],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ),
-          borderRadius: const BorderRadius.only(
-            bottomLeft: Radius.circular(24),
-            bottomRight: Radius.circular(24),
-          ),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withAlpha((0.15 * 255).round()),
-              blurRadius: 6,
-              offset: const Offset(0, 3),
-            ),
-          ],
-        ),
-        child: SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Row(
-              children: [
-                const Flexible(
-                  child: Text(
+          child: SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Row(
+                children: [
+                  const Text(
                     'eSafeRide - Driver',
                     style: TextStyle(
                       fontWeight: FontWeight.bold,
                       fontSize: 20,
                       color: Colors.white,
                     ),
-                    overflow: TextOverflow.ellipsis,
                   ),
-                ),
-                IconButton(
-                  tooltip: 'Toggle Theme',
-                  onPressed: () => setState(() => _isDark = !_isDark),
-                  icon: Icon(
-                    _isDark ? Icons.dark_mode : Icons.light_mode,
-                    color: Colors.white,
+                  const Spacer(),
+                  IconButton(
+                    tooltip: 'Toggle theme',
+                    onPressed: () => setState(() => _isDark = !_isDark),
+                    icon: Icon(
+                      _isDark ? Icons.dark_mode : Icons.light_mode,
+                      color: Colors.white,
+                    ),
                   ),
-                ),
-                IconButton(
-                  tooltip: 'Logout',
-                  onPressed: () {
-                    Navigator.pushReplacementNamed(context, AppRoutes.login);
-                  },
-                  icon: const Icon(Icons.logout, color: Colors.white),
-                ),
-                IconButton(
-                  tooltip: 'Notifications',
-                  onPressed: () {},
-                  icon: const Icon(Icons.notifications, color: Colors.white),
-                ),
-              ],
+                  IconButton(
+                    tooltip: 'Notifications',
+                    onPressed: () {
+                      showModalBottomSheet<void>(
+                        context: context,
+                        builder: (_) {
+                          return SizedBox(
+                            height: 360,
+                            child: Padding(
+                              padding: const EdgeInsets.all(12),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: const [
+                                  Text(
+                                    'Notifications',
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 16,
+                                    ),
+                                  ),
+                                  SizedBox(height: 12),
+                                  Expanded(
+                                    child: Center(
+                                      child: Text('No notifications'),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          );
+                        },
+                      );
+                    },
+                    icon: const Icon(Icons.notifications, color: Colors.white),
+                  ),
+                  IconButton(
+                    tooltip: 'Messages',
+                    onPressed: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => const ConversationListPage(),
+                        ),
+                      );
+                    },
+                    icon: const Icon(Icons.chat_bubble, color: Colors.white),
+                  ),
+                  IconButton(
+                    tooltip: 'Logout',
+                    onPressed: () async {
+                      final nav = Navigator.of(context);
+                      await FirebaseAuth.instance.signOut();
+                      if (!mounted) return;
+                      nav.pushReplacementNamed(AppRoutes.login);
+                    },
+                    icon: const Icon(Icons.logout, color: Colors.white),
+                  ),
+                ],
+              ),
             ),
           ),
         ),
       ),
+      body: SafeArea(
+        child: ListView(
+          padding: const EdgeInsets.all(16),
+          children: [
+            _buildDriverProfileHeader(),
+            const SizedBox(height: 12),
+            if (_pendingRides.isNotEmpty)
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 8,
+                ),
+                margin: const EdgeInsets.only(bottom: 12),
+                decoration: BoxDecoration(
+                  color: Colors.yellow[100],
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  'You have ${_pendingRides.length} pending ride request(s)',
+                  style: TextStyle(color: Colors.orange[800]),
+                ),
+              ),
+            const SizedBox(height: 6),
+            _buildQuickStats(),
+            const SizedBox(height: 18),
+            _buildQuickActions(),
+            const SizedBox(height: 18),
+            _buildLiveTripCard(),
+            const SizedBox(height: 18),
+            _buildEarningsCard(),
+            const SizedBox(height: 18),
+            _buildViewAvailableRidesButton(),
+          ],
+        ),
+      ),
+      floatingActionButton: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          FloatingActionButton.small(
+            heroTag: 'chat',
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const UserListPage()),
+              );
+            },
+            child: const Icon(Icons.chat),
+          ),
+          const SizedBox(height: 8),
+          FloatingActionButton.extended(
+            heroTag: 'emergency',
+            onPressed: () {},
+            icon: const Icon(Icons.safety_check),
+            label: const Text('Emergency'),
+            backgroundColor: kPrimaryTeal,
+          ),
+        ],
+      ),
+      bottomNavigationBar: _buildBottomNav(),
     );
   }
 
-  // -------------------- DRIVER CARDS --------------------
-  Widget _buildDriverProfileCard() {
+  // profile header styled like the Student dashboard
+  Widget _buildDriverProfileHeader() {
     return Row(
       children: [
         Stack(
@@ -487,12 +469,10 @@ class _DriverDashboardState extends State<DriverDashboard>
                 height: 74,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
-                  gradient: const RadialGradient(
-                    colors: [Color(0xFF3E71DF), Color(0xFF00BFA5)],
-                  ),
+                  gradient: kAppGradient,
                   boxShadow: [
                     BoxShadow(
-                      color: Colors.blue.withAlpha((0.20 * 255).round()),
+                      color: kPrimaryBlue.withAlpha((0.20 * 255).round()),
                       blurRadius: 12,
                       offset: const Offset(0, 6),
                     ),
@@ -502,19 +482,18 @@ class _DriverDashboardState extends State<DriverDashboard>
             ),
             CircleAvatar(
               radius: 30,
-              backgroundColor: const Color(0xFF00BFA5),
+              backgroundColor: kPrimaryTeal,
               backgroundImage: _driverPhotoUrl.isNotEmpty
                   ? NetworkImage(_driverPhotoUrl)
                   : null,
               child: _driverPhotoUrl.isEmpty
                   ? Text(
-                      // Safely compute initials (avoid range errors if name is short)
                       _driverName.isNotEmpty
                           ? (_driverName.length >= 2
                                     ? _driverName.substring(0, 2)
                                     : _driverName.substring(0, 1))
                                 .toUpperCase()
-                          : 'JD',
+                          : 'DR',
                       style: const TextStyle(
                         color: Colors.white,
                         fontWeight: FontWeight.bold,
@@ -541,11 +520,10 @@ class _DriverDashboardState extends State<DriverDashboard>
                   fontSize: 20,
                   fontWeight: FontWeight.bold,
                 ),
-                overflow: TextOverflow.ellipsis,
               ),
               const SizedBox(height: 6),
               const Text(
-                'Motorbyk #12 • License ABC123',
+                'Driver • Motorbyk #12',
                 style: TextStyle(color: Colors.grey, fontSize: 12),
               ),
             ],
@@ -553,7 +531,7 @@ class _DriverDashboardState extends State<DriverDashboard>
         ),
         IconButton(
           tooltip: 'Profile',
-          onPressed: () => setState(() => _showDriverProfile = true),
+          onPressed: () => _openDriverProfile(),
           icon: const Icon(Icons.person_outline),
         ),
       ],
@@ -561,148 +539,111 @@ class _DriverDashboardState extends State<DriverDashboard>
   }
 
   Widget _buildQuickStats() {
-    Widget statItem(String title, String value, IconData icon, Color color) {
-      return Expanded(
-        child: Container(
-          padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(12),
-            boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 6)],
-          ),
-          child: Column(
-            children: [
-              Icon(icon, color: color, size: 28),
-              const SizedBox(height: 6),
-              Text(
-                value,
-                style: const TextStyle(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 16,
-                ),
-              ),
-              Text(
-                title,
-                style: const TextStyle(color: Colors.grey, fontSize: 12),
-              ),
-            ],
-          ),
+    Widget statCard(
+      String title,
+      String value,
+      List<Color> colors,
+      IconData icon,
+    ) => Expanded(
+      child: Container(
+        margin: const EdgeInsets.only(right: 8),
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(colors: colors),
+          borderRadius: BorderRadius.circular(12),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withAlpha((0.04 * 255).round()),
+              blurRadius: 6,
+              offset: const Offset(0, 3),
+            ),
+          ],
         ),
-      );
-    }
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(icon, size: 18, color: Colors.black54),
+                const SizedBox(width: 8),
+                Text(title, style: const TextStyle(color: Colors.black54)),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text(
+              value,
+              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+            ),
+          ],
+        ),
+      ),
+    );
 
     return Row(
       children: [
-        statItem('Active Trips', '2', Icons.directions_bus, Colors.blue),
-        const SizedBox(width: 8),
-        statItem('Earnings', '\$124', Icons.attach_money, Colors.green),
-        const SizedBox(width: 8),
-        statItem('Rating', '4.8', Icons.star, Colors.amber),
+        statCard('Trips', '$_tripsCompleted', [
+          const Color(0xFFE8F7FF),
+          const Color(0xFFBEE9FF),
+        ], Icons.directions_bike),
+        statCard('Earnings', '\$${_earnings.toStringAsFixed(2)}', [
+          const Color(0xFFFFE8F0),
+          const Color(0xFFFFC6DD),
+        ], Icons.attach_money),
+        statCard('Rating', _rating.toStringAsFixed(1), [
+          const Color(0xFFFFF8E1),
+          const Color(0xFFFFF0B3),
+        ], Icons.star),
       ],
     );
   }
 
   Widget _buildQuickActions() {
-    final actions = [
-      {'title': 'Start Trip', 'icon': Icons.play_arrow, 'color': Colors.green},
-      {'title': 'End Trip', 'icon': Icons.stop, 'color': Colors.red},
-      {'title': 'Mark Pickup', 'icon': Icons.location_on, 'color': Colors.blue},
-      {'title': 'Mark Drop', 'icon': Icons.flag, 'color': Colors.orange},
-      {'title': 'Messages', 'icon': Icons.message, 'color': Colors.purple},
-    ];
-
     return SizedBox(
-      height: 130,
-      child: ListView.separated(
-        scrollDirection: Axis.horizontal,
-        itemCount: actions.length,
-        separatorBuilder: (_, __) => const SizedBox(width: 12),
-        itemBuilder: (context, i) {
-          final item = actions[i];
-          final Color itemColor = item['color'] as Color;
-          final IconData itemIcon = item['icon'] as IconData;
-          final String itemTitle = item['title'] as String;
-          return GestureDetector(
-            onTap: () {},
-            child: Container(
-              width: 140,
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(16),
-                gradient: LinearGradient(
-                  colors: [
-                    itemColor.withAlpha((0.9 * 255).round()),
-                    Colors.white,
-                  ],
+      height: 120,
+      child: Row(
+        children: [
+          Expanded(
+            child: Card(
+              child: SizedBox(
+                height: 120,
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text(
+                        'Trip',
+                        style: TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                      const SizedBox(height: 8),
+                      ElevatedButton(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: _tripActive
+                              ? Colors.red
+                              : Colors.green,
+                          minimumSize: const Size(120, 40),
+                        ),
+                        onPressed: _tripActive ? _endTrip : _startTrip,
+                        child: Text(_tripActive ? 'Stop' : 'Start'),
+                      ),
+                    ],
+                  ),
                 ),
-                boxShadow: [
-                  BoxShadow(
-                    color: itemColor.withAlpha((0.2 * 255).round()),
-                    blurRadius: 10,
-                    offset: const Offset(0, 6),
-                  ),
-                ],
-              ),
-              child: Column(
-                children: [
-                  CircleAvatar(
-                    radius: 20,
-                    backgroundColor: itemColor.withAlpha((0.2 * 255).round()),
-                    child: Icon(itemIcon, color: itemColor),
-                  ),
-                  const Spacer(),
-                  Text(
-                    itemTitle,
-                    style: const TextStyle(fontWeight: FontWeight.bold),
-                    textAlign: TextAlign.center,
-                  ),
-                ],
               ),
             ),
-          );
-        },
+          ),
+        ],
       ),
     );
   }
 
   Widget _buildLiveTripCard() {
     return Card(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
       child: Padding(
         padding: const EdgeInsets.all(12),
-        child: Row(
-          children: [
-            AnimatedBuilder(
-              animation: _pulseController,
-              builder: (context, child) {
-                return Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 6,
-                  ),
-                  decoration: BoxDecoration(
-                    color: Colors.green.withAlpha(
-                      ((0.12 * (1 + _pulseController.value)) * 255).round(),
-                    ),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Row(
-                    children: [
-                      const Icon(Icons.timer, size: 18),
-                      const SizedBox(width: 6),
-                      Flexible(
-                        child: Text(
-                          _formatDuration(_currentTripTime),
-                          style: const TextStyle(fontWeight: FontWeight.bold),
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                    ],
-                  ),
-                );
-              },
-            ),
-          ],
+        child: Text(
+          'Trip Time: ${_formatDuration(_currentTripTime)}',
+          style: const TextStyle(fontWeight: FontWeight.bold),
         ),
       ),
     );
@@ -710,191 +651,104 @@ class _DriverDashboardState extends State<DriverDashboard>
 
   Widget _buildEarningsCard() {
     return Card(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-      child: const Padding(
-        padding: EdgeInsets.all(12),
-        child: Text(
-          'Earnings: \$452',
-          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-        ),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Text('Earnings: \$${_earnings.toStringAsFixed(2)}'),
       ),
     );
   }
 
   Widget _buildViewAvailableRidesButton() {
-    return ElevatedButton.icon(
+    return ElevatedButton(
       onPressed: () {
         Navigator.push(
           context,
           MaterialPageRoute(builder: (_) => const AvailableRidesPage()),
         );
       },
-      icon: const Icon(Icons.directions_car),
-      label: const Text('View All Available Rides'),
+      child: const Text('View Available Rides'),
     );
   }
 
-  // -------------------- RIDE ALERT --------------------
-  Widget _buildRideNotifications() {
-    return Positioned(
-      bottom: 140,
-      left: 16,
-      right: 16,
-      child: Container(
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: Colors.yellow[100],
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: Colors.yellow.shade700),
-        ),
-        child: Column(
-          children: [
-            Row(
-              children: [
-                const Icon(Icons.warning, color: Colors.orange),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    'You have ${_pendingRides.length} pending ride request(s)!',
-                    style: TextStyle(color: Colors.orange[800]),
-                  ),
-                ),
-                IconButton(
-                  onPressed: () => setState(() => _showAlert = false),
-                  icon: const Icon(Icons.close, color: Colors.orange),
-                ),
-              ],
-            ),
-            const Divider(),
-            ..._pendingRides.map((ride) {
-              final rideId = ride.id;
-              final data = ride.data() as Map<String, dynamic>;
-              final pickup = data['pickup'] as GeoPoint?;
-              final dest = data['destination'] as GeoPoint?;
-              final pickupKey = '${rideId}_pickup';
-              final destKey = '${rideId}_dest';
+  // Profile editor is opened via the centralized `_openDriverProfile`
+  // implementation later in this file which provides the required
+  // callbacks (`onSave` / `onSkip`) for `DriverProfile`.
 
-              return Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Ride $rideId',
-                          style: const TextStyle(fontWeight: FontWeight.bold),
-                        ),
-                        const SizedBox(height: 6),
-                        Row(
-                          children: [
-                            // Pickup label / resolving indicator
-                            Expanded(
-                              child: Builder(
-                                builder: (context) {
-                                  final entry = _rideAddressCache[pickupKey];
-                                  if (entry == null) {
-                                    return Text(
-                                      pickup != null
-                                          ? '${pickup.latitude},${pickup.longitude}'
-                                          : 'Unknown',
-                                    );
-                                  }
-                                  if (entry.label == null) {
-                                    return Row(
-                                      children: const [
-                                        SizedBox(
-                                          width: 14,
-                                          height: 14,
-                                          child: CircularProgressIndicator(
-                                            strokeWidth: 2,
-                                          ),
-                                        ),
-                                        SizedBox(width: 8),
-                                        Text('Resolving pickup...'),
-                                      ],
-                                    );
-                                  }
-                                  return Text(entry.label!);
-                                },
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            const Text('→'),
-                            const SizedBox(width: 8),
-                            // Destination label / resolving indicator
-                            Expanded(
-                              child: Builder(
-                                builder: (context) {
-                                  final entry = _rideAddressCache[destKey];
-                                  if (entry == null) {
-                                    return Text(
-                                      dest != null
-                                          ? '${dest.latitude},${dest.longitude}'
-                                          : 'Unknown',
-                                    );
-                                  }
-                                  if (entry.label == null) {
-                                    return Row(
-                                      children: const [
-                                        SizedBox(
-                                          width: 14,
-                                          height: 14,
-                                          child: CircularProgressIndicator(
-                                            strokeWidth: 2,
-                                          ),
-                                        ),
-                                        SizedBox(width: 8),
-                                        Text('Resolving dest...'),
-                                      ],
-                                    );
-                                  }
-                                  return Text(entry.label!);
-                                },
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                  TextButton(
-                    onPressed: () => _acceptRide(rideId),
-                    child: const Text(
-                      'Accept',
-                      style: TextStyle(color: Colors.green),
-                    ),
-                  ),
-                  TextButton(
-                    onPressed: () => _rejectRide(rideId),
-                    child: const Text(
-                      'Reject',
-                      style: TextStyle(color: Colors.red),
-                    ),
-                  ),
-                ],
-              );
-            }),
-          ],
-        ),
-      ),
+  Future<void> _openDriverProfile({bool recheckAfterSave = true}) async {
+    if (!mounted) return;
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) {
+        return DraggableScrollableSheet(
+          expand: false,
+          builder: (_, controller) {
+            return Container(
+              decoration: BoxDecoration(
+                color: Theme.of(context).scaffoldBackgroundColor,
+                borderRadius: const BorderRadius.vertical(
+                  top: Radius.circular(16),
+                ),
+              ),
+              padding: EdgeInsets.only(
+                bottom: MediaQuery.of(context).viewInsets.bottom,
+              ),
+              child: SingleChildScrollView(
+                controller: controller,
+                child: DriverProfile(
+                  uid: uid,
+                  onSave: () {
+                    Navigator.of(context).pop();
+                    if (recheckAfterSave && mounted) _checkProfileCompletion();
+                  },
+                  onSkip: () {
+                    Navigator.of(context).pop();
+                  },
+                ),
+              ),
+            );
+          },
+        );
+      },
     );
   }
 
   Widget _buildBottomNav() {
     return BottomNavigationBar(
-      currentIndex: 0,
-      selectedItemColor: const Color(0xFF3E71DF),
-      unselectedItemColor: Colors.grey[500],
-      onTap: (index) {
-        if (index == 1) setState(() => _showDriverProfile = true);
+      currentIndex: _bottomIndex,
+      onTap: (i) async {
+        setState(() => _bottomIndex = i);
+        if (i == 1) {
+          _openDriverProfile();
+          return;
+        }
+        // Map / current ride
+        if (i == 2) {
+          final user = FirebaseAuth.instance.currentUser;
+          if (user == null) return;
+          final rideId = await RideService().findActiveRideForDriver(user.uid);
+          if (rideId == null) {
+            if (!mounted) return;
+            ScaffoldMessenger.of(
+              context,
+            ).showSnackBar(const SnackBar(content: Text('No active ride')));
+            return;
+          }
+          if (!mounted) return;
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => DriverRideTrackingPage(rideId: rideId),
+            ),
+          );
+        }
       },
       items: const [
         BottomNavigationBarItem(icon: Icon(Icons.home), label: 'Home'),
-        BottomNavigationBarItem(
-          icon: Icon(Icons.person_outline),
-          label: 'Profile',
-        ),
+        BottomNavigationBarItem(icon: Icon(Icons.person), label: 'Profile'),
+        BottomNavigationBarItem(icon: Icon(Icons.map), label: 'Map'),
       ],
     );
   }

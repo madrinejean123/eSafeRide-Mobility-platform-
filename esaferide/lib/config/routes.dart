@@ -6,7 +6,10 @@ import 'package:esaferide/presentation/auth/splash_page.dart';
 import 'package:esaferide/presentation/student/pages/student_dashboard.dart';
 import 'package:esaferide/presentation/driver/pages/driver_dashboard.dart';
 import 'package:esaferide/presentation/driver/driver_pending_page.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:esaferide/presentation/admin/admin_dashboard.dart';
+import 'package:esaferide/presentation/chat/conversation_list_page.dart';
+import 'package:esaferide/presentation/chat/user_list_page.dart';
 
 class AppRoutes {
   // Basic routes
@@ -19,6 +22,8 @@ class AppRoutes {
   static const String driverDashboard = '/driver_dashboard';
   static const String driverPending = '/driver_pending';
   static const String adminDashboard = '/admin_dashboard';
+  static const String conversations = '/conversations';
+  static const String usersList = '/users_list';
 
   static Map<String, WidgetBuilder> get routes {
     return {
@@ -30,12 +35,18 @@ class AppRoutes {
       driverPending: (context) {
         final args =
             ModalRoute.of(context)?.settings.arguments as Map<String, dynamic>?;
-        final uid = args != null && args['uid'] != null
-            ? args['uid'] as String
-            : '';
+        String uid = '';
+        if (args != null && args['uid'] != null) {
+          uid = args['uid'] as String;
+        }
+        if (uid.isEmpty) {
+          uid = FirebaseAuth.instance.currentUser?.uid ?? '';
+        }
         return DriverPendingPage(uid: uid);
       },
       adminDashboard: (context) => const AdminDashboard(),
+      conversations: (context) => const ConversationListPage(),
+      usersList: (context) => const UserListPage(),
     };
   }
 

@@ -174,6 +174,7 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
       // Driver role: check drivers/{uid} doc to determine verification status
       try {
         final dSnap = await _db.collection('drivers').doc(uid).get();
+        if (!mounted) return;
         final verified = dSnap.exists && (dSnap.data()?['verified'] == true);
         if (verified) {
           Navigator.pushReplacementNamed(context, AppRoutes.driverDashboard);
@@ -188,6 +189,7 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
         }
       } catch (e) {
         // Fallback: open dashboard so users can still access profile
+        if (!mounted) return;
         Navigator.pushReplacementNamed(context, AppRoutes.driverDashboard);
       }
     }

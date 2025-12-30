@@ -2,10 +2,12 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:http/http.dart' as http;
+import 'package:firebase_auth/firebase_auth.dart';
+import '../../chat/chat_page.dart';
+import '../../../data/services/chat_service.dart';
 
 import '../../../data/services/geocode_service.dart';
 import 'package:esaferide/utils/platform_api_key.dart';
@@ -13,16 +15,16 @@ import 'package:esaferide/presentation/shared/app_scaffold.dart';
 import 'package:esaferide/presentation/shared/styles.dart';
 import '../../../data/services/ride_service.dart';
 
-class RideTrackingPage extends StatefulWidget {
+class DriverRideTrackingPage extends StatefulWidget {
   final String rideId;
 
-  const RideTrackingPage({super.key, required this.rideId});
+  const DriverRideTrackingPage({super.key, required this.rideId});
 
   @override
-  State<RideTrackingPage> createState() => _RideTrackingPageState();
+  State<DriverRideTrackingPage> createState() => _DriverRideTrackingPageState();
 }
 
-class _RideTrackingPageState extends State<RideTrackingPage> {
+class _DriverRideTrackingPageState extends State<DriverRideTrackingPage> {
   final _docRef = FirebaseFirestore.instance.collection('rides');
 
   GoogleMapController? _mapController;
@@ -37,13 +39,14 @@ class _RideTrackingPageState extends State<RideTrackingPage> {
   static const Duration _driverRouteThrottle = Duration(seconds: 8);
 
   String? _googleMapsApiKey;
-  // String? _directionsFunctionUrl; // Removed unused variable
 
   String _status = 'pending';
   String? _driverId;
   String? _driverName;
   String? _pickupLabel;
   String? _destinationLabel;
+  String? _studentId;
+  String? _studentName;
   String? _currentUserId;
 
   bool get _isCurrentDriver =>
@@ -77,7 +80,6 @@ class _RideTrackingPageState extends State<RideTrackingPage> {
 
   Future<void> _loadApiKey() async {
     _googleMapsApiKey = await PlatformApiKey.getGoogleMapsApiKey();
-    // _directionsFunctionUrl = await PlatformApiKey.getDirectionsFunctionUrl(); // Removed unused assignment
   }
 
   @override
@@ -123,6 +125,23 @@ class _RideTrackingPageState extends State<RideTrackingPage> {
         }
       }
 
+      // student id/name
+      if (data['studentId'] != null) {
+        final sid = data['studentId'] as String?;
+        if (sid != null) {
+          _studentId = sid;
+          final sdoc = await FirebaseFirestore.instance
+              .collection('students')
+              .doc(sid)
+              .get();
+          if (sdoc.exists && sdoc.data() != null) {
+            _studentName =
+                (sdoc.data() as Map<String, dynamic>)['fullName'] as String? ??
+                sid;
+          }
+        }
+      }
+
       // Destination marker
       if (data['destination'] is GeoPoint) {
         final gp = data['destination'] as GeoPoint;
@@ -140,7 +159,7 @@ class _RideTrackingPageState extends State<RideTrackingPage> {
               infoWindow: InfoWindow(title: 'Destination', snippet: label),
             );
           });
-          _updateRoute(); // Update route polyline automatically
+          _updateRoute();
         }
       }
 
@@ -178,8 +197,6 @@ class _RideTrackingPageState extends State<RideTrackingPage> {
         });
       }
     }
-
-    // finished loading driver name
   }
 
   void _animateDriverTo(LatLng newPos) {
@@ -430,7 +447,6 @@ class _RideTrackingPageState extends State<RideTrackingPage> {
   Future<void> _markCompleted() async {
     if (widget.rideId.isEmpty || _currentUserId == null) return;
     final duration = _routeDurationSeconds ?? 0;
-    // compute fare similarly to driver dashboard: base + 0.5 per minute
     final fare = 5.0 + ((duration / 60.0) * 0.5);
     final ok = await RideService().completeTrip(
       rideId: widget.rideId,
@@ -466,7 +482,32 @@ class _RideTrackingPageState extends State<RideTrackingPage> {
     };
 
     return AppScaffold(
-      title: 'Ride Tracking',
+      title: 'Driver Map',
+      actions: [
+        IconButton(
+          tooltip: 'Chat with student',
+          onPressed: () {
+            if (_studentId == null || _currentUserId == null) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('No student assigned yet')),
+              );
+              return;
+            }
+            final chatId = ChatService.chatIdFor(_currentUserId!, _studentId!);
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => ChatPage(
+                  chatId: chatId,
+                  otherUserId: _studentId!,
+                  otherUserName: _studentName,
+                ),
+              ),
+            );
+          },
+          icon: const Icon(Icons.chat_bubble, color: Colors.white),
+        ),
+      ],
       child: Column(
         children: [
           Padding(
@@ -489,40 +530,6 @@ class _RideTrackingPageState extends State<RideTrackingPage> {
                       ),
                     ],
                   ),
-                  const SizedBox(height: 8),
-                  if (_isCurrentDriver) ...[
-                    Row(
-                      children: [
-                        ElevatedButton(
-                          onPressed:
-                              (_status == 'accepted' || _status == 'on_the_way')
-                              ? _markArrived
-                              : null,
-                          child: const Text('Arrived'),
-                        ),
-                        const SizedBox(width: 8),
-                        ElevatedButton(
-                          onPressed:
-                              (_status == 'arrived' ||
-                                  _status == 'accepted' ||
-                                  _status == 'on_the_way')
-                              ? _markTripStarted
-                              : null,
-                          child: const Text('Start Trip'),
-                        ),
-                        const SizedBox(width: 8),
-                        ElevatedButton(
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.green,
-                          ),
-                          onPressed: (_status == 'trip_started')
-                              ? _markCompleted
-                              : null,
-                          child: const Text('Complete'),
-                        ),
-                      ],
-                    ),
-                  ],
                   const SizedBox(height: 8),
                   Row(
                     children: [
@@ -573,6 +580,40 @@ class _RideTrackingPageState extends State<RideTrackingPage> {
                         ),
                     ],
                   ),
+                  const SizedBox(height: 8),
+                  if (_isCurrentDriver) ...[
+                    Row(
+                      children: [
+                        ElevatedButton(
+                          onPressed:
+                              (_status == 'accepted' || _status == 'on_the_way')
+                              ? _markArrived
+                              : null,
+                          child: const Text('Arrived'),
+                        ),
+                        const SizedBox(width: 8),
+                        ElevatedButton(
+                          onPressed:
+                              (_status == 'arrived' ||
+                                  _status == 'accepted' ||
+                                  _status == 'on_the_way')
+                              ? _markTripStarted
+                              : null,
+                          child: const Text('Start Trip'),
+                        ),
+                        const SizedBox(width: 8),
+                        ElevatedButton(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.green,
+                          ),
+                          onPressed: (_status == 'trip_started')
+                              ? _markCompleted
+                              : null,
+                          child: const Text('Complete'),
+                        ),
+                      ],
+                    ),
+                  ],
                 ],
               ),
             ),
