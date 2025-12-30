@@ -14,7 +14,7 @@ dependencies:
   # UI
   cupertino_icons: ^1.0.8
 
-  # Firebase (modern, compatible with Dart 3.8)
+  # Firebase (Dart 3.8 compatible)
   firebase_core: ^4.3.0
   firebase_auth: ^6.1.3
   cloud_firestore: ^6.1.1
@@ -22,16 +22,16 @@ dependencies:
   google_sign_in: ^7.2.0
   flutter_facebook_auth: ^7.1.2
 
-  # Media & files
+  # Media & files (SAFE)
   image_picker: ^0.8.13
   record: ^4.4.4
-  path_provider: ^2.2.19
+  path_provider: ^2.1.2        # ✅ FIXED (real version)
   uuid: ^3.0.7
 
-  # Location & maps
+  # Location & maps (SAFE)
   geolocator: ^9.0.2
   geocoding: ^2.2.2
-  google_maps_flutter: ^2.7.0   # ✅ FIXED
+  google_maps_flutter: ^2.7.0  # ✅ FIXED (real version)
 
   # Network & permissions
   http: ^1.6.0
