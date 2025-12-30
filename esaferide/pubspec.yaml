@@ -5,7 +5,7 @@ publish_to: "none"
 version: 1.0.0+1
 
 environment:
-  sdk: ^3.8.1
+  sdk: ">=3.8.0 <4.0.0"
 
 dependencies:
   flutter:
@@ -22,30 +22,30 @@ dependencies:
   google_sign_in: ^7.2.0
   flutter_facebook_auth: ^7.1.2
 
-  # Media & files
-  image_picker: ^1.2.1
-  record: ^4.4.0
-  path_provider: ^2.0.0
+  # Media & files (SAFE)
+  image_picker: ^1.0.7
+  record: ^6.1.2          # ✅ ONLY FIX (namespace support for AGP 8+)
+  path_provider: ^2.1.2
   uuid: ^3.0.7
 
   # Location & maps
   geolocator: ^9.0.2
-  geocoding: ^2.0.5
-  google_maps_flutter: ^2.2.3
+  geocoding: ^2.2.2
+  google_maps_flutter: ^2.7.0
 
   # Network & permissions
   http: ^1.6.0
   permission_handler: ^11.4.0
-  # JS interop for web-specific implementations
-  js: ^0.6.5
+
+  # Web / streams
+  js: ^0.6.7
   rxdart: ^0.28.0
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
 
-  # Compatible with everything above
-  flutter_lints: ^3.0.2
+  flutter_lints: ^5.0.0
 
 flutter:
   uses-material-design: true

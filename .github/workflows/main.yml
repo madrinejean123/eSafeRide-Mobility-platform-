@@ -12,41 +12,36 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
-      # Remove old Flutter to avoid conflicts
+      # Remove preinstalled Flutter to avoid conflicts
       - name: Remove old Flutter
         run: |
           sudo rm -rf /opt/hostedtoolcache/flutter
           rm -rf $HOME/.flutter
           rm -rf $HOME/.pub-cache
 
-      # Install Flutter manually
-      - name: Install Flutter 3.13.7
+      # Install latest stable Flutter (matches Dart >= 3.8)
+      - name: Install Flutter (stable)
         run: |
           git clone https://github.com/flutter/flutter.git -b stable $HOME/flutter
-          echo "$HOME/flutter/bin" >> $GITHUB_PATH  # <-- this makes Flutter available in all next steps
+          echo "$HOME/flutter/bin" >> $GITHUB_PATH
 
-      # Confirm Flutter & Dart version
       - name: Check Flutter version
         run: flutter --version
 
-      # Install dependencies
       - name: Get dependencies
+        working-directory: esaferide
         run: flutter pub get
-        working-directory: esaferide
 
-      # Clean old builds
       - name: Clean previous builds
+        working-directory: esaferide
         run: flutter clean
-        working-directory: esaferide
 
-      # Build APK
-      - name: Build APK
+      - name: Build APK (release)
+        working-directory: esaferide
         run: flutter build apk --release
-        working-directory: esaferide
 
-      # Upload APK
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
