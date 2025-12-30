@@ -35,7 +35,7 @@ dependencies:
 
   # Network & permissions
   http: ^1.6.0
-  permission_handler: ^12.1.0
+  permission_handler: ^13.0.1
 
   # JS interop for web-specific implementations
   js: ^0.6.7
