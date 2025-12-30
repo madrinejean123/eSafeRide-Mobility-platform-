@@ -24,6 +24,7 @@ class _AdminRidesPageBodyState extends State<AdminRidesPageBody> {
   final _rideCol = FirebaseFirestore.instance.collection('rides');
   final RideService _rideService = RideService();
 
+  // ignore: unused_element
   Future<bool> _confirmAction(BuildContext ctx, String prompt) async {
     final res = await showDialog<bool>(
       context: ctx,
@@ -46,6 +47,7 @@ class _AdminRidesPageBodyState extends State<AdminRidesPageBody> {
     return res == true;
   }
 
+  // ignore: unused_element
   Future<void> _assignDriver(BuildContext ctx, String rideId) async {
     await showDialog<void>(
       context: ctx,
@@ -137,7 +139,12 @@ class _AdminRidesPageBodyState extends State<AdminRidesPageBody> {
       child: AppScaffold(
         title: 'Admin • Rides',
         child: StreamBuilder<QuerySnapshot>(
-          stream: _rideCol.orderBy('createdAt', descending: true).snapshots(),
+          // Admin should only see rides that are either pending (available)
+          // or completed (finished). Admins do not assign drivers here.
+          stream: _rideCol
+              .where('status', whereIn: ['pending', 'completed'])
+              .orderBy('createdAt', descending: true)
+              .snapshots(),
           builder: (context, snapshot) {
             if (snapshot.hasError) {
               return const Center(child: Text('Error'));
@@ -154,36 +161,7 @@ class _AdminRidesPageBodyState extends State<AdminRidesPageBody> {
                 final data = d.data() as Map<String, dynamic>;
                 return Padding(
                   padding: const EdgeInsets.symmetric(vertical: 6),
-                  child: _RideCard(
-                    rideId: d.id,
-                    data: data,
-                    onAssign: () => _assignDriver(context, d.id),
-                    onReject: () async {
-                      final ok = await _confirmAction(
-                        context,
-                        'Reject this ride?',
-                      );
-                      if (!ok) return false;
-                      try {
-                        await _rideCol.doc(d.id).update({
-                          'status': 'rejected',
-                          'rejectedByAdmin': true,
-                          'updatedAt': FieldValue.serverTimestamp(),
-                        });
-                        if (!mounted) return false;
-                        ScaffoldMessenger.of(this.context).showSnackBar(
-                          const SnackBar(content: Text('Ride rejected')),
-                        );
-                        return true;
-                      } catch (e) {
-                        if (!mounted) return false;
-                        ScaffoldMessenger.of(
-                          this.context,
-                        ).showSnackBar(SnackBar(content: Text('Error: $e')));
-                        return false;
-                      }
-                    },
-                  ),
+                  child: _RideCard(rideId: d.id, data: data),
                 );
               },
             );
@@ -197,15 +175,8 @@ class _AdminRidesPageBodyState extends State<AdminRidesPageBody> {
 class _RideCard extends StatefulWidget {
   final String rideId;
   final Map<String, dynamic> data;
-  final VoidCallback onAssign;
-  final Future<bool> Function() onReject;
 
-  const _RideCard({
-    required this.rideId,
-    required this.data,
-    required this.onAssign,
-    required this.onReject,
-  });
+  const _RideCard({required this.rideId, required this.data});
 
   @override
   State<_RideCard> createState() => _RideCardState();
@@ -266,6 +237,12 @@ class _RideCardState extends State<_RideCard> {
     final dest = data['destination'] as GeoPoint?;
     final student =
         _studentName ?? data['studentName'] ?? data['studentId'] ?? 'Student';
+    // Admins should not approve/reject here. Show ride details and status.
+    final status = (data['status'] as String?) ?? 'pending';
+    final statusColor = status == 'pending'
+        ? Colors.orange
+        : (status == 'completed' ? Colors.green : Colors.grey);
+
     return styledCard(
       child: Row(
         children: [
@@ -288,24 +265,67 @@ class _RideCardState extends State<_RideCard> {
             ),
           ),
           Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
             children: [
-              ElevatedButton(
-                onPressed: widget.onAssign,
-                style: primaryButtonStyle(),
-                child: const Text('Approve'),
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 6,
+                ),
+                decoration: BoxDecoration(
+                  color: statusColor.withAlpha((0.12 * 255).round()),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text(
+                  status.toUpperCase(),
+                  style: TextStyle(
+                    color: statusColor,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
               ),
-              const SizedBox(height: 6),
-              OutlinedButton(
-                onPressed: () async {
-                  await widget.onReject();
-                },
-                style: outlinedButtonStyle(),
-                child: const Text('Reject'),
-              ),
+              const SizedBox(height: 8),
+              TextButton(onPressed: _showDetails, child: const Text('View')),
             ],
           ),
         ],
       ),
+    );
+  }
+
+  void _showDetails() {
+    showDialog<void>(
+      context: context,
+      builder: (dctx) {
+        final data = widget.data;
+        final created = data['createdAt'] as Timestamp?;
+        final createdStr = created != null
+            ? TimeOfDay.fromDateTime(created.toDate()).format(context)
+            : '';
+        return AlertDialog(
+          title: Text('Ride ${widget.rideId}'),
+          content: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Student: ${data['studentName'] ?? data['studentId'] ?? ''}',
+                ),
+                const SizedBox(height: 8),
+                Text('Status: ${data['status'] ?? ''}'),
+                const SizedBox(height: 8),
+                Text('Created: $createdStr'),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dctx).pop(),
+              child: const Text('Close'),
+            ),
+          ],
+        );
+      },
     );
   }
 }

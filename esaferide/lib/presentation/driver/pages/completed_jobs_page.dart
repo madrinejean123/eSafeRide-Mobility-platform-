@@ -36,7 +36,11 @@ class CompletedJobsPage extends StatelessWidget {
         stream: tripsCol.snapshots(),
         builder: (context, snap) {
           if (snap.hasError) {
-            return const Center(child: Text('Error'));
+            // Show the error details in logs and surface a friendlier message
+            debugPrint('CompletedJobsPage stream error: ${snap.error}');
+            return Center(
+              child: Text('Error loading completed jobs: ${snap.error}'),
+            );
           }
           if (!snap.hasData) {
             return const Center(child: CircularProgressIndicator());

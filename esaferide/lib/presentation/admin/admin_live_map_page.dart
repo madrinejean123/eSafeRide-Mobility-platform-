@@ -51,6 +51,11 @@ class _AdminLiveMapPageState extends State<AdminLiveMapPage> {
 
     for (final d in docs) {
       final data = d.data() as Map<String, dynamic>;
+      // Skip completed or rejected rides — we only show active rides on the
+      // admin live map. This ensures completed jobs are removed from the map
+      // when the ride document's status becomes 'completed' or 'rejected'.
+      final status = (data['status'] as String?) ?? 'pending';
+      if (status == 'completed' || status == 'rejected') continue;
       final rideId = d.id;
 
       final pickup = data['pickup'] as GeoPoint?;

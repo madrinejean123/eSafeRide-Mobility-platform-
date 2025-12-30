@@ -8,6 +8,8 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:esaferide/presentation/student/pages/student_profile.dart';
 import 'package:esaferide/presentation/student/pages/new_ride_page.dart';
 import 'package:esaferide/presentation/student/pages/completed_trips_page.dart';
+import 'package:esaferide/presentation/chat/conversation_list_page.dart';
+import 'package:esaferide/data/services/chat_service.dart';
 import 'package:geolocator/geolocator.dart';
 
 class StudentDashboard extends StatefulWidget {
@@ -492,9 +494,39 @@ class _StudentDashboardState extends State<StudentDashboard>
       );
     }
 
+    final uid = FirebaseAuth.instance.currentUser?.uid;
     return Row(
       children: [
-        statItem('Completed', '124', Icons.check_circle_outline, _primaryStart),
+        // Completed trips: live count from `trips` collection for this student
+        Expanded(
+          child: StreamBuilder<QuerySnapshot>(
+            stream: uid == null
+                ? const Stream.empty()
+                : FirebaseFirestore.instance
+                      .collection('trips')
+                      .where('studentId', isEqualTo: uid)
+                      .snapshots(),
+            builder: (context, snap) {
+              final count = snap.hasData ? snap.data!.docs.length : 0;
+              return GestureDetector(
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => const CompletedTripsPage(),
+                    ),
+                  );
+                },
+                child: statItem(
+                  'Completed',
+                  '$count',
+                  Icons.check_circle_outline,
+                  _primaryStart,
+                ),
+              );
+            },
+          ),
+        ),
         const SizedBox(width: 8),
         statItem('Pending', '2', Icons.pending_actions, Colors.orangeAccent),
         const SizedBox(width: 8),
@@ -525,9 +557,10 @@ class _StudentDashboardState extends State<StudentDashboard>
         itemBuilder: (context, i) {
           final item = actions[i];
           final Color itemColor = item['color'] as Color;
+          final title = item['title'] as String;
+          final uid = FirebaseAuth.instance.currentUser?.uid;
           return GestureDetector(
             onTap: () {
-              final title = item['title'] as String;
               if (title == 'My Trips') {
                 Navigator.push(
                   context,
@@ -538,57 +571,100 @@ class _StudentDashboardState extends State<StudentDashboard>
               if (title == 'Messages') {
                 Navigator.push(
                   context,
-                  MaterialPageRoute(builder: (_) => const SizedBox()),
+                  MaterialPageRoute(
+                    builder: (_) => const ConversationListPage(),
+                  ),
                 );
                 return;
               }
             },
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 350),
-              width: 140,
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(16),
-                gradient: LinearGradient(
-                  colors: [
-                    itemColor.withAlpha((0.92 * 255).round()),
-                    _accentSoft,
-                  ],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
+            child: Stack(
+              children: [
+                AnimatedContainer(
+                  duration: const Duration(milliseconds: 350),
+                  width: 140,
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(16),
+                    gradient: LinearGradient(
+                      colors: [
+                        itemColor.withAlpha((0.92 * 255).round()),
+                        _accentSoft,
+                      ],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: itemColor.withAlpha((0.22 * 255).round()),
+                        blurRadius: 10,
+                        offset: const Offset(0, 6),
+                      ),
+                    ],
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      CircleAvatar(
+                        radius: 18,
+                        backgroundColor: itemColor.withAlpha(
+                          (0.18 * 255).round(),
+                        ),
+                        child: Icon(item['icon'] as IconData, color: itemColor),
+                      ),
+                      const Spacer(),
+                      FittedBox(
+                        fit: BoxFit.scaleDown,
+                        alignment: Alignment.centerLeft,
+                        child: Text(
+                          item['title'] as String,
+                          style: const TextStyle(fontWeight: FontWeight.bold),
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      const Text(
+                        'Tap to open',
+                        style: TextStyle(fontSize: 12, color: Colors.grey),
+                      ),
+                    ],
+                  ),
                 ),
-                boxShadow: [
-                  BoxShadow(
-                    color: itemColor.withAlpha((0.22 * 255).round()),
-                    blurRadius: 10,
-                    offset: const Offset(0, 6),
-                  ),
-                ],
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  CircleAvatar(
-                    radius: 18,
-                    backgroundColor: itemColor.withAlpha((0.18 * 255).round()),
-                    child: Icon(item['icon'] as IconData, color: itemColor),
-                  ),
-                  const Spacer(),
-                  FittedBox(
-                    fit: BoxFit.scaleDown,
-                    alignment: Alignment.centerLeft,
-                    child: Text(
-                      item['title'] as String,
-                      style: const TextStyle(fontWeight: FontWeight.bold),
+                // Unread badge only for Messages
+                if (title == 'Messages')
+                  Positioned(
+                    right: 6,
+                    top: 6,
+                    child: StreamBuilder<int>(
+                      stream: uid == null
+                          ? const Stream.empty()
+                          : ChatService().streamTotalUnreadForUser(uid),
+                      builder: (context, snap) {
+                        final unread = snap.data ?? 0;
+                        if (unread <= 0) return const SizedBox.shrink();
+                        return Container(
+                          padding: const EdgeInsets.all(6),
+                          decoration: BoxDecoration(
+                            color: Colors.red,
+                            shape: BoxShape.circle,
+                          ),
+                          constraints: const BoxConstraints(
+                            minWidth: 24,
+                            minHeight: 24,
+                          ),
+                          child: Center(
+                            child: Text(
+                              unread > 99 ? '99+' : unread.toString(),
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 11,
+                              ),
+                            ),
+                          ),
+                        );
+                      },
                     ),
                   ),
-                  const SizedBox(height: 6),
-                  const Text(
-                    'Tap to open',
-                    style: TextStyle(fontSize: 12, color: Colors.grey),
-                  ),
-                ],
-              ),
+              ],
             ),
           );
         },

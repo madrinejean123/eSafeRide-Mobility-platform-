@@ -91,7 +91,7 @@ class _RegisterPageState extends State<RegisterPage>
       );
 
       await _saveUser(cred.user!);
-      _goToDashboard();
+      _goToDashboard(uid: cred.user!.uid);
     } catch (e) {
       _showSnack(e.toString());
     }
@@ -116,7 +116,7 @@ class _RegisterPageState extends State<RegisterPage>
       }
 
       await _saveUser(userCred.user!);
-      _goToDashboard();
+      _goToDashboard(uid: userCred.user!.uid);
     } catch (e) {
       _showSnack(e.toString());
     }
@@ -152,7 +152,7 @@ class _RegisterPageState extends State<RegisterPage>
       final userCred = await _auth.signInWithCredential(credential);
 
       await _saveUser(userCred.user!);
-      _goToDashboard();
+      _goToDashboard(uid: userCred.user!.uid);
     } catch (e) {
       _showSnack(e.toString());
     }
@@ -187,11 +187,20 @@ class _RegisterPageState extends State<RegisterPage>
     }
   }
 
-  void _goToDashboard() {
+  // Route to the correct dashboard/pending page using an explicit uid.
+  // Passing the created user's uid avoids races where FirebaseAuth.currentUser
+  // may not be populated consistently across platforms immediately after
+  // registration.
+  void _goToDashboard({required String uid}) {
+    debugPrint('Routing after register: role=$_selectedRole uid=$uid');
     if (_selectedRole == 'Student') {
       Navigator.pushReplacementNamed(context, AppRoutes.studentDashboard);
     } else {
-      Navigator.pushReplacementNamed(context, AppRoutes.driverDashboard);
+      Navigator.pushReplacementNamed(
+        context,
+        AppRoutes.driverPending,
+        arguments: {'uid': uid},
+      );
     }
   }
 

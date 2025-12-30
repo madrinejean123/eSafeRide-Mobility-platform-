@@ -147,30 +147,77 @@ class _DriverProfileState extends State<DriverProfile> {
     bool success = false;
     try {
       // Upload files with timeouts to avoid indefinite hanging
-      final idUrl = idFile != null
-          ? await _uploadFile(
-              idFile!,
-              'drivers/${widget.uid}/id.jpg',
-            ).timeout(const Duration(seconds: 30))
-          : null;
-      final licenseUrl = licenseFile != null
-          ? await _uploadFile(
-              licenseFile!,
-              'drivers/${widget.uid}/license.jpg',
-            ).timeout(const Duration(seconds: 30))
-          : null;
-      final profileUrl = profilePhoto != null
-          ? await _uploadFile(
-              profilePhoto!,
-              'drivers/${widget.uid}/profile.jpg',
-            ).timeout(const Duration(seconds: 30))
-          : null;
-      final motorcycleUrl = motorcyclePhoto != null
-          ? await _uploadFile(
-              motorcyclePhoto!,
-              'drivers/${widget.uid}/motorcycle.jpg',
-            ).timeout(const Duration(seconds: 30))
-          : null;
+      // Upload files. Avoid strict short timeouts which can fail on slow
+      // mobile connections — instead catch individual upload errors and
+      // continue. This prevents the whole flow from throwing a
+      // TimeoutException and leaving the UI in a loading state.
+      String? idUrl;
+      String? licenseUrl;
+      String? profileUrl;
+      String? motorcycleUrl;
+
+      if (idFile != null) {
+        try {
+          idUrl = await _uploadFile(idFile!, 'drivers/${widget.uid}/id.jpg');
+        } catch (e) {
+          debugPrint('ID upload failed: $e');
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Failed to upload ID document.')),
+            );
+          }
+        }
+      }
+
+      if (licenseFile != null) {
+        try {
+          licenseUrl = await _uploadFile(
+            licenseFile!,
+            'drivers/${widget.uid}/license.jpg',
+          );
+        } catch (e) {
+          debugPrint('License upload failed: $e');
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Failed to upload license.')),
+            );
+          }
+        }
+      }
+
+      if (profilePhoto != null) {
+        try {
+          profileUrl = await _uploadFile(
+            profilePhoto!,
+            'drivers/${widget.uid}/profile.jpg',
+          );
+        } catch (e) {
+          debugPrint('Profile photo upload failed: $e');
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Failed to upload profile photo.')),
+            );
+          }
+        }
+      }
+
+      if (motorcyclePhoto != null) {
+        try {
+          motorcycleUrl = await _uploadFile(
+            motorcyclePhoto!,
+            'drivers/${widget.uid}/motorcycle.jpg',
+          );
+        } catch (e) {
+          debugPrint('Motorcycle photo upload failed: $e');
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Failed to upload motorcycle photo.'),
+              ),
+            );
+          }
+        }
+      }
 
       // Build Firestore data
       final data = {
@@ -200,25 +247,37 @@ class _DriverProfileState extends State<DriverProfile> {
         'submittedAt': FieldValue.serverTimestamp(),
       };
 
-      // Write driver doc with timeout
-      await FirebaseFirestore.instance
-          .collection('drivers')
-          .doc(widget.uid)
-          .set(data, SetOptions(merge: true))
-          .timeout(const Duration(seconds: 30));
+      // Write driver doc. If this fails we'll show an error and keep the
+      // saving state cleared so the user can retry.
+      try {
+        await FirebaseFirestore.instance
+            .collection('drivers')
+            .doc(widget.uid)
+            .set(data, SetOptions(merge: true));
+      } catch (e) {
+        debugPrint('Error writing driver doc: $e');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Failed to save profile data.')),
+          );
+        }
+        // Bail out early; success remains false.
+        return;
+      }
 
-      // Create a simple admin notification document so admins can listen
-      // to new submissions. This is a lightweight approach; you can replace
-      // with Cloud Functions or a more advanced notifications schema later.
-      await FirebaseFirestore.instance
-          .collection('notifications')
-          .add({
-            'type': 'driver_submission',
-            'driverId': widget.uid,
-            'createdAt': FieldValue.serverTimestamp(),
-            'read': false,
-          })
-          .timeout(const Duration(seconds: 10));
+      // Notify admins about the submission. Best-effort: if notification
+      // creation fails we log it but don't treat it as fatal for the
+      // submission itself.
+      try {
+        await FirebaseFirestore.instance.collection('notifications').add({
+          'type': 'driver_submission',
+          'driverId': widget.uid,
+          'createdAt': FieldValue.serverTimestamp(),
+          'read': false,
+        });
+      } catch (e) {
+        debugPrint('Failed to create admin notification: $e');
+      }
 
       success = true;
     } on TimeoutException catch (e) {

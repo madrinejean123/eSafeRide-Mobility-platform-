@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart';
 
 class ChatService {
   final CollectionReference _chats = FirebaseFirestore.instance.collection(
@@ -81,6 +82,12 @@ class ChatService {
       'seen': false,
     };
     if (replyTo != null) payload['replyTo'] = replyTo;
+    // Debug log to help trace message delivery issues across platforms.
+    try {
+      debugPrint(
+        'ChatService.sendMessage -> chatId=$chatId sender=$senderId text=${payload['text']}',
+      );
+    } catch (_) {}
     await col.add(payload);
     final chatDoc = _chats.doc(chatId);
     // update lastMessage and increment unread counts for other participants
@@ -91,6 +98,11 @@ class ChatService {
       'lastMessage': last,
       'lastMessageTime': now,
     };
+    try {
+      debugPrint(
+        'ChatService.sendMessage -> chatDoc participants: ${chatData?['participants']}',
+      );
+    } catch (_) {}
     if (chatData != null && chatData['participants'] is List) {
       final parts = List<String>.from(chatData['participants'] as List);
       for (final p in parts) {

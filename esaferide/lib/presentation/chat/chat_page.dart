@@ -7,7 +7,6 @@ import 'package:image_picker/image_picker.dart';
 import 'package:record/record.dart';
 import 'package:uuid/uuid.dart';
 import 'package:path_provider/path_provider.dart';
-import '../call/call_page.dart';
 import '../../data/services/chat_service.dart';
 
 class ChatPage extends StatefulWidget {
@@ -202,22 +201,7 @@ class _ChatPageState extends State<ChatPage>
           ],
         ),
         iconTheme: const IconThemeData(color: Colors.black87),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.call, color: Colors.green),
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => CallPage(
-                    channelName: widget.chatId,
-                    chatId: widget.chatId,
-                  ),
-                ),
-              );
-            },
-          ),
-        ],
+        actions: [],
       ),
       body: Column(
         children: [
@@ -226,12 +210,22 @@ class _ChatPageState extends State<ChatPage>
               stream: _chat.streamMessages(widget.chatId),
               builder: (context, snap) {
                 if (snap.hasError) {
-                  return const Center(child: Text('Error'));
+                  debugPrint(
+                    'ChatPage.streamMessages error for chat ${widget.chatId}: ${snap.error}',
+                  );
+                  return Center(
+                    child: Text('Error loading messages: ${snap.error}'),
+                  );
                 }
                 if (!snap.hasData) {
                   return const Center(child: CircularProgressIndicator());
                 }
                 final docs = snap.data!.docs;
+                try {
+                  debugPrint(
+                    'ChatPage: received ${docs.length} messages for ${widget.chatId}',
+                  );
+                } catch (_) {}
                 WidgetsBinding.instance.addPostFrameCallback(
                   (_) => _scrollToBottom(),
                 );

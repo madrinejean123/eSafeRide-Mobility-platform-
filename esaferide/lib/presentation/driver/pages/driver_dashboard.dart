@@ -45,6 +45,7 @@ class _DriverDashboardState extends State<DriverDashboard>
   late AnimationController _pulseController;
   Timer? _tripTimer;
   StreamSubscription<QuerySnapshot>? _ridesSub;
+  StreamSubscription<QuerySnapshot>? _tripsSub;
 
   bool _tripActive = false;
 
@@ -63,7 +64,7 @@ class _DriverDashboardState extends State<DriverDashboard>
   int _bottomIndex = 0;
 
   // visible driver stats
-  int _tripsCompleted = 2;
+  int _tripsCompleted = 0;
   double _earnings = 124.0;
   final double _rating = 4.8;
 
@@ -113,6 +114,7 @@ class _DriverDashboardState extends State<DriverDashboard>
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _checkProfileCompletion();
       _listenToPendingRides();
+      _subscribeToTripsCount();
     });
   }
 
@@ -122,6 +124,7 @@ class _DriverDashboardState extends State<DriverDashboard>
     _pulseController.dispose();
     _tripTimer?.cancel();
     _ridesSub?.cancel();
+    _tripsSub?.cancel();
     // LocationUpdater is started from AvailableRidesPage when a ride is accepted.
 
     fullNameCtrl.dispose();
@@ -172,6 +175,24 @@ class _DriverDashboardState extends State<DriverDashboard>
       _driverName = fullNameCtrl.text;
       _driverPhotoUrl = data['profilePhotoUrl'] ?? '';
     });
+  }
+
+  void _subscribeToTripsCount() {
+    if (uid.isEmpty) return;
+    try {
+      _tripsSub = FirebaseFirestore.instance
+          .collection('trips')
+          .where('driverId', isEqualTo: uid)
+          .snapshots()
+          .listen((snap) {
+            if (!mounted) return;
+            setState(() {
+              _tripsCompleted = snap.docs.length;
+            });
+          });
+    } catch (e) {
+      debugPrint('Failed to subscribe to trips count: $e');
+    }
   }
 
   // -------------------- TRIP TIMER (start/stop) --------------------
@@ -582,48 +603,63 @@ class _DriverDashboardState extends State<DriverDashboard>
       String title,
       String value,
       List<Color> colors,
-      IconData icon,
-    ) => Expanded(
-      child: Container(
-        margin: const EdgeInsets.only(right: 8),
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          gradient: LinearGradient(colors: colors),
-          borderRadius: BorderRadius.circular(12),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withAlpha((0.04 * 255).round()),
-              blurRadius: 6,
-              offset: const Offset(0, 3),
-            ),
-          ],
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(icon, size: 18, color: Colors.black54),
-                const SizedBox(width: 8),
-                Text(title, style: const TextStyle(color: Colors.black54)),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Text(
-              value,
-              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
-            ),
-          ],
+      IconData icon, {
+      VoidCallback? onTap,
+    }) => Expanded(
+      child: InkWell(
+        onTap: onTap,
+        child: Container(
+          margin: const EdgeInsets.only(right: 8),
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            gradient: LinearGradient(colors: colors),
+            borderRadius: BorderRadius.circular(12),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withAlpha((0.04 * 255).round()),
+                blurRadius: 6,
+                offset: const Offset(0, 3),
+              ),
+            ],
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(icon, size: 18, color: Colors.black54),
+                  const SizedBox(width: 8),
+                  Text(title, style: const TextStyle(color: Colors.black54)),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Text(
+                value,
+                style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 18,
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
 
     return Row(
       children: [
-        statCard('Trips', '$_tripsCompleted', [
-          const Color(0xFFE8F7FF),
-          const Color(0xFFBEE9FF),
-        ], Icons.directions_bike),
+        statCard(
+          'Trips',
+          '$_tripsCompleted',
+          [const Color(0xFFE8F7FF), const Color(0xFFBEE9FF)],
+          Icons.directions_bike,
+          onTap: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const CompletedJobsPage()),
+            );
+          },
+        ),
         statCard('Earnings', '\$${_earnings.toStringAsFixed(2)}', [
           const Color(0xFFFFE8F0),
           const Color(0xFFFFC6DD),
