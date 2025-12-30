@@ -2,7 +2,6 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:esaferide/presentation/shared/app_scaffold.dart';
 import 'package:esaferide/presentation/shared/styles.dart';
-import 'package:esaferide/data/services/ride_service.dart';
 import 'package:esaferide/data/services/geocode_service.dart';
 import 'package:esaferide/presentation/admin/admin_gate.dart';
 
@@ -21,116 +20,50 @@ class AdminRidesPageBody extends StatefulWidget {
 }
 
 class _AdminRidesPageBodyState extends State<AdminRidesPageBody> {
-  final _rideCol = FirebaseFirestore.instance.collection('rides');
-  final RideService _rideService = RideService();
+  final CollectionReference _rideCol = FirebaseFirestore.instance.collection(
+    'rides',
+  );
 
-  // ignore: unused_element
-  Future<bool> _confirmAction(BuildContext ctx, String prompt) async {
-    final res = await showDialog<bool>(
-      context: ctx,
-      builder: (dctx) => AlertDialog(
-        title: const Text('Confirm'),
-        content: Text(prompt),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dctx).pop(false),
-            child: const Text('No'),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.of(dctx).pop(true),
-            style: primaryButtonStyle(),
-            child: const Text('Yes'),
-          ),
-        ],
-      ),
-    );
-    return res == true;
+  final Map<String, String> _studentNameCache = {};
+  final Set<String> _resolving = {};
+
+  late final Stream<List<QueryDocumentSnapshot>> _ridesStream;
+
+  @override
+  void initState() {
+    super.initState();
+
+    // Combine pending and completed into a single stream
+    _ridesStream = _rideCol
+        .where('status', whereIn: ['pending', 'completed'])
+        .orderBy('createdAt', descending: true)
+        .snapshots()
+        .map((snap) => snap.docs)
+        .asBroadcastStream(); // Make it broadcast to avoid multiple listens
   }
 
-  // ignore: unused_element
-  Future<void> _assignDriver(BuildContext ctx, String rideId) async {
-    await showDialog<void>(
-      context: ctx,
-      builder: (dctx) {
-        final driversCol = FirebaseFirestore.instance.collection('drivers');
-        return AlertDialog(
-          title: const Text('Assign driver'),
-          content: SizedBox(
-            width: 400,
-            height: 300,
-            child: StreamBuilder<QuerySnapshot>(
-              stream: driversCol.snapshots(),
-              builder: (context, snap) {
-                if (snap.hasError) {
-                  return const Text('Error loading drivers');
-                }
-                if (!snap.hasData) {
-                  return const Center(child: CircularProgressIndicator());
-                }
-                final docs = snap.data!.docs;
-                if (docs.isEmpty) {
-                  return const Text('No drivers available');
-                }
-                return ListView.separated(
-                  itemCount: docs.length,
-                  separatorBuilder: (_, __) => const Divider(),
-                  itemBuilder: (context, i) {
-                    final d = docs[i];
-                    final data = d.data() as Map<String, dynamic>;
-                    return ListTile(
-                      leading: CircleAvatar(
-                        backgroundImage: data['profilePhotoUrl'] != null
-                            ? NetworkImage(data['profilePhotoUrl'])
-                            : null,
-                        child: data['profilePhotoUrl'] == null
-                            ? const Icon(Icons.person)
-                            : null,
-                      ),
-                      title: Text(data['fullName'] ?? 'Unnamed'),
-                      subtitle: Text(data['phone'] ?? ''),
-                      trailing: ElevatedButton(
-                        onPressed: () async {
-                          Navigator.of(dctx).pop();
-                          try {
-                            final ok = await _rideService.acceptRide(
-                              rideId: rideId,
-                              driverId: d.id,
-                            );
-                            if (!mounted) return;
-                            ScaffoldMessenger.of(this.context).showSnackBar(
-                              SnackBar(
-                                content: Text(
-                                  ok
-                                      ? 'Driver assigned'
-                                      : 'Could not assign driver',
-                                ),
-                              ),
-                            );
-                          } catch (e) {
-                            if (!mounted) return;
-                            ScaffoldMessenger.of(this.context).showSnackBar(
-                              SnackBar(content: Text('Error: $e')),
-                            );
-                          }
-                        },
-                        style: primaryButtonStyle(),
-                        child: const Text('Assign'),
-                      ),
-                    );
-                  },
-                );
-              },
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(dctx).pop(),
-              child: const Text('Close'),
-            ),
-          ],
-        );
-      },
-    );
+  Future<void> _resolveStudentName(String id) async {
+    if (_studentNameCache.containsKey(id) || _resolving.contains(id)) return;
+    _resolving.add(id);
+
+    try {
+      final doc = await FirebaseFirestore.instance
+          .collection('students')
+          .doc(id)
+          .get();
+      final data = doc.data();
+      if (!mounted) return;
+      setState(() {
+        _studentNameCache[id] = (data?['fullName'] as String?) ?? 'Student';
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _studentNameCache[id] = 'Student';
+      });
+    } finally {
+      _resolving.remove(id);
+    }
   }
 
   @override
@@ -138,30 +71,52 @@ class _AdminRidesPageBodyState extends State<AdminRidesPageBody> {
     return AdminGate(
       child: AppScaffold(
         title: 'Admin • Rides',
-        child: StreamBuilder<QuerySnapshot>(
-          // Admin should only see rides that are either pending (available)
-          // or completed (finished). Admins do not assign drivers here.
-          stream: _rideCol
-              .where('status', whereIn: ['pending', 'completed'])
-              .orderBy('createdAt', descending: true)
-              .snapshots(),
+        child: StreamBuilder<List<QueryDocumentSnapshot>>(
+          stream: _ridesStream,
           builder: (context, snapshot) {
             if (snapshot.hasError) {
-              return const Center(child: Text('Error'));
+              return const Center(child: Text('Error loading rides'));
             }
             if (!snapshot.hasData) {
               return const Center(child: CircularProgressIndicator());
             }
-            final docs = snapshot.data!.docs;
+
+            final docs = snapshot.data!;
+            if (docs.isEmpty) {
+              return const Center(child: Text('No rides available'));
+            }
+
             return ListView.builder(
               padding: const EdgeInsets.all(12),
               itemCount: docs.length,
-              itemBuilder: (context, i) {
-                final d = docs[i];
+              itemBuilder: (context, index) {
+                final d = docs[index];
                 final data = d.data() as Map<String, dynamic>;
-                return Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 6),
-                  child: _RideCard(rideId: d.id, data: data),
+                final studentId = data['studentId'] as String?;
+
+                // Resolve student name safely after build
+                if (studentId != null &&
+                    !_studentNameCache.containsKey(studentId) &&
+                    !_resolving.contains(studentId)) {
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    _resolveStudentName(studentId);
+                  });
+                }
+
+                final studentName = studentId != null
+                    ? (_studentNameCache[studentId] ?? 'Student')
+                    : (data['studentName'] ?? 'Student');
+
+                final gp = data['pickup'] as GeoPoint?;
+                final dest = data['destination'] as GeoPoint?;
+
+                return _RideCard(
+                  rideId: d.id,
+                  studentName: studentName,
+                  pickup: gp,
+                  destination: dest,
+                  status: data['status'] as String? ?? 'pending',
+                  createdAt: data['createdAt'] as Timestamp?,
                 );
               },
             );
@@ -172,160 +127,122 @@ class _AdminRidesPageBodyState extends State<AdminRidesPageBody> {
   }
 }
 
-class _RideCard extends StatefulWidget {
+class _RideCard extends StatelessWidget {
   final String rideId;
-  final Map<String, dynamic> data;
+  final String studentName;
+  final GeoPoint? pickup;
+  final GeoPoint? destination;
+  final String status;
+  final Timestamp? createdAt;
 
-  const _RideCard({required this.rideId, required this.data});
-
-  @override
-  State<_RideCard> createState() => _RideCardState();
-}
-
-class _RideCardState extends State<_RideCard> {
-  String? _studentName;
-  String? _pickupLabel;
-  String? _destLabel;
-
-  @override
-  void initState() {
-    super.initState();
-    _resolveStudentAndLabels();
-  }
-
-  Future<void> _resolveStudentAndLabels() async {
-    try {
-      final data = widget.data;
-      final sid = data['studentId'] as String?;
-      if (data['studentName'] != null) {
-        _studentName = data['studentName'] as String?;
-      } else if (sid != null && sid.isNotEmpty) {
-        final sdoc = await FirebaseFirestore.instance
-            .collection('students')
-            .doc(sid)
-            .get();
-        if (sdoc.exists && sdoc.data() != null) {
-          final sdata = sdoc.data() as Map<String, dynamic>;
-          _studentName = sdata['fullName'] ?? sdata['name'];
-        }
-      }
-
-      final gp = data['pickup'] as GeoPoint?;
-      final dest = data['destination'] as GeoPoint?;
-      if (gp != null) {
-        final label = await resolveLabel(gp.latitude, gp.longitude);
-        _pickupLabel =
-            label ??
-            '${gp.latitude.toStringAsFixed(5)}, ${gp.longitude.toStringAsFixed(5)}';
-      }
-      if (dest != null) {
-        final label = await resolveLabel(dest.latitude, dest.longitude);
-        _destLabel =
-            label ??
-            '${dest.latitude.toStringAsFixed(5)}, ${dest.longitude.toStringAsFixed(5)}';
-      }
-    } catch (e) {
-      debugPrint('Error resolving ride labels: $e');
-    }
-    if (mounted) setState(() {});
-  }
+  const _RideCard({
+    required this.rideId,
+    required this.studentName,
+    this.pickup,
+    this.destination,
+    required this.status,
+    this.createdAt,
+  });
 
   @override
   Widget build(BuildContext context) {
-    final data = widget.data;
-    final gp = data['pickup'] as GeoPoint?;
-    final dest = data['destination'] as GeoPoint?;
-    final student =
-        _studentName ?? data['studentName'] ?? data['studentId'] ?? 'Student';
-    // Admins should not approve/reject here. Show ride details and status.
-    final status = (data['status'] as String?) ?? 'pending';
-    final statusColor = status == 'pending'
-        ? Colors.orange
-        : (status == 'completed' ? Colors.green : Colors.grey);
+    final statusColor = status == 'pending' ? Colors.orange : Colors.green;
 
-    return styledCard(
-      child: Row(
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('Ride ${widget.rideId}', style: sectionTitleStyle()),
-                const SizedBox(height: 6),
-                Text('Student: $student'),
-                if (gp != null)
+    String formatGeo(GeoPoint? gp) => gp != null
+        ? '${gp.latitude.toStringAsFixed(5)}, ${gp.longitude.toStringAsFixed(5)}'
+        : '';
+
+    final createdStr = createdAt != null
+        ? TimeOfDay.fromDateTime(createdAt!.toDate()).format(context)
+        : '';
+
+    return Card(
+      elevation: 2,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Ride $rideId', style: sectionTitleStyle()),
+                  const SizedBox(height: 6),
                   Text(
-                    'Pickup: ${_pickupLabel ?? '${gp.latitude},${gp.longitude}'}',
+                    'Student: $studentName',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
-                if (dest != null)
-                  Text(
-                    'Dest: ${_destLabel ?? '${dest.latitude},${dest.longitude}'}',
-                  ),
-              ],
-            ),
-          ),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 6,
-                ),
-                decoration: BoxDecoration(
-                  color: statusColor.withAlpha((0.12 * 255).round()),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Text(
-                  status.toUpperCase(),
-                  style: TextStyle(
-                    color: statusColor,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
+                  if (pickup != null)
+                    Text(
+                      'Pickup: ${formatGeo(pickup)}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  if (destination != null)
+                    Text(
+                      'Dest: ${formatGeo(destination)}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                ],
               ),
-              const SizedBox(height: 8),
-              TextButton(onPressed: _showDetails, child: const Text('View')),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _showDetails() {
-    showDialog<void>(
-      context: context,
-      builder: (dctx) {
-        final data = widget.data;
-        final created = data['createdAt'] as Timestamp?;
-        final createdStr = created != null
-            ? TimeOfDay.fromDateTime(created.toDate()).format(context)
-            : '';
-        return AlertDialog(
-          title: Text('Ride ${widget.rideId}'),
-          content: SingleChildScrollView(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+            ),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
               children: [
-                Text(
-                  'Student: ${data['studentName'] ?? data['studentId'] ?? ''}',
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 6,
+                  ),
+                  decoration: BoxDecoration(
+                    color: statusColor.withAlpha(50),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Text(
+                    status.toUpperCase(),
+                    style: TextStyle(
+                      color: statusColor,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
                 ),
                 const SizedBox(height: 8),
-                Text('Status: ${data['status'] ?? ''}'),
-                const SizedBox(height: 8),
-                Text('Created: $createdStr'),
+                TextButton(
+                  onPressed: () {
+                    showDialog(
+                      context: context,
+                      builder: (ctx) => AlertDialog(
+                        title: Text('Ride $rideId'),
+                        content: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('Student: $studentName'),
+                            const SizedBox(height: 8),
+                            Text('Status: $status'),
+                            const SizedBox(height: 8),
+                            Text('Created: $createdStr'),
+                          ],
+                        ),
+                        actions: [
+                          TextButton(
+                            onPressed: () => Navigator.of(ctx).pop(),
+                            child: const Text('Close'),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                  child: const Text('View'),
+                ),
               ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(dctx).pop(),
-              child: const Text('Close'),
             ),
           ],
-        );
-      },
+        ),
+      ),
     );
   }
 }

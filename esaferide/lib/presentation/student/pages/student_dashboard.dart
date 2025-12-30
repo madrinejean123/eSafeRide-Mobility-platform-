@@ -446,50 +446,48 @@ class _StudentDashboardState extends State<StudentDashboard>
   // ---- Quick Stats ----
   Widget _buildQuickStatsCard() {
     Widget statItem(String title, String value, IconData icon, Color bg) {
-      return Expanded(
-        child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 10),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(12),
-            boxShadow: const [
-              BoxShadow(
-                color: Colors.black12,
-                blurRadius: 8,
-                offset: Offset(0, 4),
+      return Container(
+        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 10),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          boxShadow: const [
+            BoxShadow(
+              color: Colors.black12,
+              blurRadius: 8,
+              offset: Offset(0, 4),
+            ),
+          ],
+        ),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: bg.withAlpha((0.14 * 255).round()),
+                borderRadius: BorderRadius.circular(8),
               ),
-            ],
-          ),
-          child: Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: bg.withAlpha((0.14 * 255).round()),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Icon(icon, size: 20, color: bg),
+              child: Icon(icon, size: 20, color: bg),
+            ),
+            const SizedBox(width: 8),
+            Flexible(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    value,
+                    style: const TextStyle(fontWeight: FontWeight.bold),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  Text(
+                    title,
+                    style: const TextStyle(color: Colors.grey, fontSize: 12),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
               ),
-              const SizedBox(width: 8),
-              Flexible(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      value,
-                      style: const TextStyle(fontWeight: FontWeight.bold),
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    Text(
-                      title,
-                      style: const TextStyle(color: Colors.grey, fontSize: 12),
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
+            ),
+          ],
         ),
       );
     }
@@ -528,9 +526,18 @@ class _StudentDashboardState extends State<StudentDashboard>
           ),
         ),
         const SizedBox(width: 8),
-        statItem('Pending', '2', Icons.pending_actions, Colors.orangeAccent),
+        Expanded(
+          child: statItem(
+            'Pending',
+            '2',
+            Icons.pending_actions,
+            Colors.orangeAccent,
+          ),
+        ),
         const SizedBox(width: 8),
-        statItem('Saved', '5', Icons.bookmark_border, Colors.amber),
+        Expanded(
+          child: statItem('Saved', '5', Icons.bookmark_border, Colors.amber),
+        ),
       ],
     );
   }

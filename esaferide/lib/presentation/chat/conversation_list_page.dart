@@ -12,22 +12,52 @@ class ConversationListPage extends StatefulWidget {
 }
 
 class _ConversationListPageState extends State<ConversationListPage> {
-  final _svc = ChatService();
+  final ChatService _svc = ChatService();
   final Map<String, String> _nameCache = {};
   final Set<String> _resolving = {};
 
+  /// Resolve the display name for a user UID
   Future<void> _resolveName(String uid) async {
     if (_nameCache.containsKey(uid) || _resolving.contains(uid)) return;
     _resolving.add(uid);
+
     try {
-      final doc = await FirebaseFirestore.instance
+      // Try common places where a user's display name might live.
+      String name = '';
+
+      // 1) users collection (most universal)
+      final uDoc = await FirebaseFirestore.instance
           .collection('users')
           .doc(uid)
           .get();
-      final name = (doc.data()?['displayName'] as String?) ?? '';
+      name = (uDoc.data()?['displayName'] as String?) ?? '';
+
+      // 2) students collection
+      if (name.isEmpty) {
+        final sDoc = await FirebaseFirestore.instance
+            .collection('students')
+            .doc(uid)
+            .get();
+        name = (sDoc.data()?['fullName'] as String?) ?? '';
+      }
+
+      // 3) drivers collection
+      if (name.isEmpty) {
+        final dDoc = await FirebaseFirestore.instance
+            .collection('drivers')
+            .doc(uid)
+            .get();
+        name = (dDoc.data()?['fullName'] as String?) ?? '';
+      }
+
       if (!mounted) return;
       setState(() {
         _nameCache[uid] = name.isNotEmpty ? name : uid;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _nameCache[uid] = uid;
       });
     } finally {
       _resolving.remove(uid);
@@ -38,76 +68,96 @@ class _ConversationListPageState extends State<ConversationListPage> {
   Widget build(BuildContext context) {
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null) {
-      return const Center(child: Text('Sign in required'));
+      return const Scaffold(body: Center(child: Text('Sign in required')));
     }
 
     return Scaffold(
       appBar: AppBar(title: const Text('Conversations')),
       body: StreamBuilder<QuerySnapshot>(
         stream: _svc.streamChatsForUser(uid),
-        builder: (context, snap) {
-          if (snap.hasError) return const Center(child: Text('Error'));
-          if (!snap.hasData) {
+        builder: (context, snapshot) {
+          if (snapshot.hasError) {
+            return Center(
+              child: Text('Error loading chats: ${snapshot.error}'),
+            );
+          }
+          if (!snapshot.hasData) {
             return const Center(child: CircularProgressIndicator());
           }
+
+          // Only show chats with recent messages (last 2 days)
           final cutoff = DateTime.now().subtract(const Duration(days: 2));
-          final docs = snap.data!.docs.where((d) {
-            final data = d.data() as Map<String, dynamic>?;
+          final docs = snapshot.data!.docs.where((doc) {
+            final data = doc.data() as Map<String, dynamic>?;
             if (data == null) return false;
             final ts = data['lastMessageTime'] as Timestamp?;
-            if (ts == null) return true;
+            if (ts == null) return true; // include chat without timestamp
             return ts.toDate().isAfter(cutoff);
           }).toList();
+
           if (docs.isEmpty) {
             return const Center(child: Text('No recent conversations'));
           }
-          return ListView.builder(
+
+          return ListView.separated(
+            padding: const EdgeInsets.all(12),
+            separatorBuilder: (_, __) => const Divider(),
             itemCount: docs.length,
-            itemBuilder: (context, i) {
-              final d = docs[i];
-              final data = d.data() as Map<String, dynamic>;
+            itemBuilder: (context, index) {
+              final doc = docs[index];
+              final data = doc.data() as Map<String, dynamic>;
               final participants = List<String>.from(
                 data['participants'] ?? [],
               );
-              final other = participants.where((p) => p != uid).isNotEmpty
-                  ? participants.where((p) => p != uid).first
-                  : participants.first;
-              final last = data['lastMessage'] as String? ?? '';
+              final other = participants.firstWhere(
+                (p) => p != uid,
+                orElse: () => participants.first,
+              );
+
+              final lastMessage = data['lastMessage'] as String? ?? '';
               final ts = data['lastMessageTime'] as Timestamp?;
               final timeStr = ts != null
                   ? _timeLabel(ts.toDate(), context)
                   : '';
-              final subtitle = last.isNotEmpty
-                  ? last
+              final subtitle = lastMessage.isNotEmpty
+                  ? lastMessage
                   : (ts != null
                         ? 'Connected ${_ageLabel(ts.toDate())} ago'
                         : 'Tap to chat');
 
+              // Resolve the other user's name asynchronously
               if (!_nameCache.containsKey(other) &&
                   !_resolving.contains(other)) {
                 _resolveName(other);
               }
 
-              final display =
+              final displayName =
                   data['title'] as String? ?? _nameCache[other] ?? other;
 
               return ListTile(
                 leading: CircleAvatar(
                   child: Text(
-                    display.isNotEmpty ? display[0].toUpperCase() : '?',
+                    displayName.isNotEmpty ? displayName[0].toUpperCase() : '?',
                   ),
                 ),
-                title: Text(display),
+                title: Text(displayName),
                 subtitle: Text(subtitle),
                 trailing: Text(timeStr, style: const TextStyle(fontSize: 12)),
                 onTap: () async {
+                  // Ensure we have the resolved human-readable name before opening chat
+                  if (!_nameCache.containsKey(other) &&
+                      !_resolving.contains(other)) {
+                    await _resolveName(other);
+                  }
+                  final resolved =
+                      _nameCache[other] ?? (data['title'] as String?) ?? other;
                   Navigator.push(
                     context,
                     MaterialPageRoute(
                       builder: (_) => ChatPage(
-                        chatId: d.id,
+                        chatId: doc.id,
                         otherUserId: other,
-                        otherUserName: display,
+                        otherUserName: resolved,
                       ),
                     ),
                   );
@@ -120,11 +170,13 @@ class _ConversationListPageState extends State<ConversationListPage> {
     );
   }
 
+  /// Format time for display
   String _timeLabel(DateTime dt, BuildContext context) {
     final t = TimeOfDay.fromDateTime(dt);
     return t.format(context);
   }
 
+  /// Calculate age label like 2h or 3d
   String _ageLabel(DateTime dt) {
     final diff = DateTime.now().difference(dt);
     if (diff.inHours < 24) return '${diff.inHours}h';

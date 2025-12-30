@@ -38,6 +38,7 @@ dependencies:
   permission_handler: ^11.4.0
   # JS interop for web-specific implementations
   js: ^0.6.5
+  rxdart: ^0.28.0
 
 dev_dependencies:
   flutter_test:

@@ -563,6 +563,8 @@ class _NewRidePageState extends State<NewRidePage> {
                 title: Text(
                   _pickupLabel ?? 'Not set',
                   style: const TextStyle(fontSize: 14),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
                 trailing: _loadingPickup
                     ? const SizedBox(
@@ -604,6 +606,8 @@ class _NewRidePageState extends State<NewRidePage> {
                 title: Text(
                   _destinationLabel ?? 'Search destination',
                   style: const TextStyle(fontSize: 14),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
                 trailing: Row(
                   mainAxisSize: MainAxisSize.min,

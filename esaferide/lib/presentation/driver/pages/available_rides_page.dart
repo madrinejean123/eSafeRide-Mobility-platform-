@@ -241,10 +241,14 @@ class _AvailableRidesPageState extends State<AvailableRidesPage> {
                                     Text(
                                       'Pickup: $pickupLabel',
                                       style: subtleStyle(),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
                                     ),
                                     Text(
                                       'Destination: $destLabel',
                                       style: subtleStyle(),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
                                     ),
                                     if ((special?['notes'] ?? '')
                                         .toString()

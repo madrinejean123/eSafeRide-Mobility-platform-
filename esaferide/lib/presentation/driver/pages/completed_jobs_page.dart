@@ -2,27 +2,46 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
-class CompletedJobsPage extends StatelessWidget {
+class CompletedJobsPage extends StatefulWidget {
   const CompletedJobsPage({super.key});
 
-  Future<String> _resolveStudentName(String id) async {
+  @override
+  State<CompletedJobsPage> createState() => _CompletedJobsPageState();
+}
+
+class _CompletedJobsPageState extends State<CompletedJobsPage> {
+  final Map<String, String> _nameCache = {};
+  final Set<String> _resolving = {};
+
+  /// Resolve student name by ID, with cache
+  Future<void> _resolveStudentName(String id) async {
+    if (_nameCache.containsKey(id) || _resolving.contains(id)) return;
+    _resolving.add(id);
     try {
       final doc = await FirebaseFirestore.instance
           .collection('students')
           .doc(id)
           .get();
       final data = doc.data();
-      if (data == null) return id;
-      return (data['fullName'] as String?) ?? id;
+      if (!mounted) return;
+      setState(() {
+        _nameCache[id] = (data?['fullName'] as String?) ?? 'Student';
+      });
     } catch (_) {
-      return id;
+      if (!mounted) return;
+      setState(() {
+        _nameCache[id] = 'Student';
+      });
+    } finally {
+      _resolving.remove(id);
     }
   }
 
   @override
   Widget build(BuildContext context) {
     final uid = FirebaseAuth.instance.currentUser?.uid;
-    if (uid == null) return const Center(child: Text('Sign in required'));
+    if (uid == null)
+      return const Scaffold(body: Center(child: Text('Sign in required')));
 
     final tripsCol = FirebaseFirestore.instance
         .collection('trips')
@@ -36,50 +55,49 @@ class CompletedJobsPage extends StatelessWidget {
         stream: tripsCol.snapshots(),
         builder: (context, snap) {
           if (snap.hasError) {
-            // Show the error details in logs and surface a friendlier message
             debugPrint('CompletedJobsPage stream error: ${snap.error}');
-            return Center(
-              child: Text('Error loading completed jobs: ${snap.error}'),
-            );
+            return Center(child: Text('Error loading completed jobs'));
           }
           if (!snap.hasData) {
             return const Center(child: CircularProgressIndicator());
           }
+
           final docs = snap.data!.docs;
           if (docs.isEmpty) {
             return const Center(child: Text('No completed jobs'));
           }
-          return ListView.builder(
+
+          return ListView.separated(
+            padding: const EdgeInsets.all(12),
+            separatorBuilder: (_, __) => const Divider(),
             itemCount: docs.length,
-            itemBuilder: (context, i) {
-              final d = docs[i];
+            itemBuilder: (context, index) {
+              final d = docs[index];
               final data = d.data() as Map<String, dynamic>;
               final studentId = data['studentId'] as String? ?? '';
               final fare = data['fare']?.toString() ?? '';
               final duration = (data['durationSeconds'] as int?) ?? 0;
               final created = data['createdAt'] as Timestamp?;
 
-              return FutureBuilder<String>(
-                future: _resolveStudentName(studentId),
-                builder: (context, nameSnap) {
-                  final name = nameSnap.data ?? studentId;
-                  final timeStr = created != null
-                      ? TimeOfDay.fromDateTime(created.toDate()).format(context)
-                      : '';
-                  return ListTile(
-                    leading: CircleAvatar(
-                      child: Text(
-                        name.isNotEmpty ? name[0].toUpperCase() : '?',
-                      ),
-                    ),
-                    title: Text(name),
-                    subtitle: Text('Duration: ${duration}s • Fare: \$$fare'),
-                    trailing: Text(
-                      timeStr,
-                      style: const TextStyle(fontSize: 12),
-                    ),
-                  );
-                },
+              // Resolve student name async but safely
+              if (!_nameCache.containsKey(studentId) &&
+                  !_resolving.contains(studentId)) {
+                _resolveStudentName(studentId);
+              }
+              final studentName = _nameCache[studentId] ?? 'Student';
+              final timeStr = created != null
+                  ? TimeOfDay.fromDateTime(created.toDate()).format(context)
+                  : '';
+
+              return ListTile(
+                leading: CircleAvatar(
+                  child: Text(
+                    studentName.isNotEmpty ? studentName[0].toUpperCase() : '?',
+                  ),
+                ),
+                title: Text(studentName),
+                subtitle: Text('Duration: ${duration}s • Fare: \$$fare'),
+                trailing: Text(timeStr, style: const TextStyle(fontSize: 12)),
               );
             },
           );

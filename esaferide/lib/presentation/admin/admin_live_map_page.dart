@@ -105,10 +105,32 @@ class _AdminLiveMapPageState extends State<AdminLiveMapPage> {
           _animateDriverToRide(rideId, driverLatLng);
         }
         _currentPositions[rideId] = driverLatLng;
+        // Attempt to show driver name instead of raw uid
+        String driverTitle = 'Driver • Ride $rideId';
+        try {
+          final driverId = data['driverId'] as String?;
+          if (driverId != null && driverId.isNotEmpty) {
+            final doc = await FirebaseFirestore.instance
+                .collection('drivers')
+                .doc(driverId)
+                .get();
+            if (doc.exists && doc.data() != null) {
+              final ddata = doc.data() as Map<String, dynamic>;
+              final name =
+                  (ddata['fullName'] as String?) ?? ddata['name'] as String?;
+              if (name != null && name.isNotEmpty) {
+                driverTitle = 'Driver • $name';
+              }
+            }
+          }
+        } catch (e) {
+          debugPrint('Failed to fetch driver name for marker: $e');
+        }
+
         nextMarkers['$rideId-driver'] = Marker(
           markerId: MarkerId('$rideId-driver'),
           position: driverLatLng,
-          infoWindow: InfoWindow(title: 'Driver • Ride $rideId'),
+          infoWindow: InfoWindow(title: driverTitle, snippet: 'Ride $rideId'),
           icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueBlue),
         );
       }
