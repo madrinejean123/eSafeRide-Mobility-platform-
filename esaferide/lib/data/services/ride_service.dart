@@ -128,25 +128,58 @@ class RideService {
     required String status,
   }) async {
     final docRef = _ridesRef.doc(rideId);
-    await docRef.update({
+    final updateMap = <String, dynamic>{
       'status': status,
       'updatedAt': FieldValue.serverTimestamp(),
-    });
+    };
+
+    // add specific timestamps for important lifecycle events
+    if (status == 'arrived') {
+      updateMap['arrivedAt'] = FieldValue.serverTimestamp();
+    } else if (status == 'trip_started' || status == 'started') {
+      updateMap['tripStartedAt'] = FieldValue.serverTimestamp();
+    } else if (status == 'completed') {
+      updateMap['completedAt'] = FieldValue.serverTimestamp();
+    }
+
+    await docRef.update(updateMap);
   }
 
   /// Mark a ride as completed and persist a trip summary in `trips`.
   /// Returns true if operation succeeded.
+  /// Mark a ride as completed and persist a trip summary in `trips`.
+  /// If `durationSeconds` or `fare` are not provided, they will be
+  /// computed from the ride's `tripStartedAt` timestamp using a simple
+  /// fare formula (base + per-minute).
   Future<bool> completeTrip({
     required String rideId,
     required String driverId,
-    required int durationSeconds,
-    required double fare,
+    int? durationSeconds,
+    double? fare,
   }) async {
     final docRef = _ridesRef.doc(rideId);
     try {
       final snap = await docRef.get();
       final data = snap.data() as Map<String, dynamic>?;
       if (data == null) return false;
+      // if duration not provided, try compute from tripStartedAt
+      if (durationSeconds == null) {
+        final started = data['tripStartedAt'];
+        if (started is Timestamp) {
+          durationSeconds = DateTime.now()
+              .difference(started.toDate())
+              .inSeconds;
+        } else {
+          durationSeconds = 0;
+        }
+      }
+
+      // compute fare if not provided: base 5.0 + 0.5 per minute
+      if (fare == null) {
+        final mins = (durationSeconds / 60.0);
+        fare = 5.0 + (mins * 0.5);
+        fare = double.parse(fare.toStringAsFixed(2));
+      }
 
       // create a trip summary
       final tripsRef = FirebaseFirestore.instance.collection('trips');

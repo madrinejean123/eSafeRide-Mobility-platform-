@@ -17,6 +17,7 @@ import '../../../data/services/ride_service.dart';
 import '../../../data/services/chat_service.dart';
 import '../../../data/services/geocode_service.dart'; // ✅ WEB + MOBILE SAFE
 import 'available_rides_page.dart';
+import 'completed_jobs_page.dart';
 
 /// -------------------- ADDRESS CACHE --------------------
 class AddressCacheEntry {
@@ -451,7 +452,13 @@ class _DriverDashboardState extends State<DriverDashboard>
             const SizedBox(height: 18),
             _buildEarningsCard(),
             const SizedBox(height: 18),
-            _buildViewAvailableRidesButton(),
+            Row(
+              children: [
+                Expanded(child: _buildViewAvailableRidesButton()),
+                const SizedBox(width: 12),
+                Expanded(child: _buildViewCompletedJobsButton()),
+              ],
+            ),
           ],
         ),
       ),
@@ -699,6 +706,18 @@ class _DriverDashboardState extends State<DriverDashboard>
         );
       },
       child: const Text('View Available Rides'),
+    );
+  }
+
+  Widget _buildViewCompletedJobsButton() {
+    return OutlinedButton(
+      onPressed: () {
+        Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => const CompletedJobsPage()),
+        );
+      },
+      child: const Text('View Completed Jobs'),
     );
   }
 

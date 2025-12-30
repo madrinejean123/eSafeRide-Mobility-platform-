@@ -67,16 +67,21 @@ class ChatService {
     required String senderId,
     String? text,
     String? imageUrl,
+    String? audioUrl,
+    Map<String, dynamic>? replyTo,
   }) async {
     final col = _chats.doc(chatId).collection('messages');
     final now = FieldValue.serverTimestamp();
-    await col.add({
+    final payload = {
       'senderId': senderId,
       'text': text ?? '',
       'imageUrl': imageUrl ?? '',
+      'audioUrl': audioUrl ?? '',
       'timestamp': now,
       'seen': false,
-    });
+    };
+    if (replyTo != null) payload['replyTo'] = replyTo;
+    await col.add(payload);
     final chatDoc = _chats.doc(chatId);
     // update lastMessage and increment unread counts for other participants
     final chatSnap = await chatDoc.get();

@@ -50,9 +50,16 @@ class _ConversationListPageState extends State<ConversationListPage> {
           if (!snap.hasData) {
             return const Center(child: CircularProgressIndicator());
           }
-          final docs = snap.data!.docs;
+          final cutoff = DateTime.now().subtract(const Duration(days: 2));
+          final docs = snap.data!.docs.where((d) {
+            final data = d.data() as Map<String, dynamic>?;
+            if (data == null) return false;
+            final ts = data['lastMessageTime'] as Timestamp?;
+            if (ts == null) return true;
+            return ts.toDate().isAfter(cutoff);
+          }).toList();
           if (docs.isEmpty) {
-            return const Center(child: Text('No conversations'));
+            return const Center(child: Text('No recent conversations'));
           }
           return ListView.builder(
             itemCount: docs.length,
@@ -70,6 +77,11 @@ class _ConversationListPageState extends State<ConversationListPage> {
               final timeStr = ts != null
                   ? _timeLabel(ts.toDate(), context)
                   : '';
+              final subtitle = last.isNotEmpty
+                  ? last
+                  : (ts != null
+                        ? 'Connected ${_ageLabel(ts.toDate())} ago'
+                        : 'Tap to chat');
 
               if (!_nameCache.containsKey(other) &&
                   !_resolving.contains(other)) {
@@ -86,14 +98,17 @@ class _ConversationListPageState extends State<ConversationListPage> {
                   ),
                 ),
                 title: Text(display),
-                subtitle: Text(last),
+                subtitle: Text(subtitle),
                 trailing: Text(timeStr, style: const TextStyle(fontSize: 12)),
                 onTap: () async {
                   Navigator.push(
                     context,
                     MaterialPageRoute(
-                      builder: (_) =>
-                          ChatPage(chatId: d.id, otherUserId: other),
+                      builder: (_) => ChatPage(
+                        chatId: d.id,
+                        otherUserId: other,
+                        otherUserName: display,
+                      ),
                     ),
                   );
                 },
@@ -108,5 +123,11 @@ class _ConversationListPageState extends State<ConversationListPage> {
   String _timeLabel(DateTime dt, BuildContext context) {
     final t = TimeOfDay.fromDateTime(dt);
     return t.format(context);
+  }
+
+  String _ageLabel(DateTime dt) {
+    final diff = DateTime.now().difference(dt);
+    if (diff.inHours < 24) return '${diff.inHours}h';
+    return '${diff.inDays}d';
   }
 }

@@ -85,161 +85,224 @@ class _AvailableRidesPageState extends State<AvailableRidesPage> {
   Widget build(BuildContext context) {
     return AppScaffold(
       title: 'Available Rides',
-      child: StreamBuilder<QuerySnapshot>(
-        stream: _rideService.listenToPendingRides(),
-        builder: (context, snapshot) {
-          if (snapshot.hasError) return const Center(child: Text('Error'));
-          if (!snapshot.hasData) {
+      child: FutureBuilder<String?>(
+        future: FirebaseAuth.instance.currentUser == null
+            ? Future.value(null)
+            : _rideService.findActiveRideForDriver(
+                FirebaseAuth.instance.currentUser!.uid,
+              ),
+        builder: (context, activeSnap) {
+          if (activeSnap.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());
           }
-          final docs = snapshot.data!.docs;
-          if (docs.isEmpty) {
-            return const Center(child: Text('No pending rides'));
+
+          final activeRideId = activeSnap.data;
+          // If driver already has an active ride, don't show the pending list.
+          if (activeRideId != null && activeRideId.isNotEmpty) {
+            return Center(
+              child: Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Text('You have an active job.'),
+                    const SizedBox(height: 12),
+                    ElevatedButton(
+                      onPressed: () {
+                        Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) =>
+                                DriverRideTrackingPage(rideId: activeRideId),
+                          ),
+                        );
+                      },
+                      child: const Text('Go to active job'),
+                    ),
+                  ],
+                ),
+              ),
+            );
           }
-          return ListView.builder(
-            itemCount: docs.length,
-            itemBuilder: (context, index) {
-              final doc = docs[index];
-              final d = doc.data() as Map<String, dynamic>;
-              final rideId = doc.id;
-              final special = d['specialNeeds'] as Map<String, dynamic>?;
 
-              Future<Map<String, String?>> resolveMeta() async {
-                if (_metaCache.containsKey(rideId)) return _metaCache[rideId]!;
-                String studentName = (d['studentName'] as String?) ?? '';
-                final sid = d['studentId'] as String?;
-                if ((studentName.isEmpty) && sid != null) {
-                  final sdoc = await FirebaseFirestore.instance
-                      .collection('students')
-                      .doc(sid)
-                      .get();
-                  if (sdoc.exists && sdoc.data() != null) {
-                    studentName =
-                        (sdoc.data() as Map<String, dynamic>)['fullName']
-                            as String? ??
-                        sid;
-                  } else {
-                    studentName = sid;
-                  }
-                }
+          // No active ride - show pending rides stream but filter out rides
+          // this driver already rejected.
+          return StreamBuilder<QuerySnapshot>(
+            stream: _rideService.listenToPendingRides(),
+            builder: (context, snapshot) {
+              if (snapshot.hasError) return const Center(child: Text('Error'));
+              if (!snapshot.hasData) {
+                return const Center(child: CircularProgressIndicator());
+              }
+              final rawDocs = snapshot.data!.docs;
+              final user = FirebaseAuth.instance.currentUser;
+              final uid = user?.uid;
 
-                String? pickupLabel;
-                String? destLabel;
-                final pickup = d['pickup'] as GeoPoint?;
-                final dest = d['destination'] as GeoPoint?;
-                if (pickup != null) {
-                  pickupLabel = await resolveLabel(
-                    pickup.latitude,
-                    pickup.longitude,
-                  );
-                }
-                if (dest != null) {
-                  destLabel = await resolveLabel(dest.latitude, dest.longitude);
-                }
+              // Filter out rides that this driver already rejected
+              final docs = rawDocs.where((doc) {
+                final d = doc.data() as Map<String, dynamic>?;
+                if (d == null) return false;
+                if (uid == null) return true;
+                final rejected = List<String>.from(d['rejectedDrivers'] ?? []);
+                return !rejected.contains(uid);
+              }).toList();
 
-                final meta = {
-                  'studentName': studentName,
-                  'pickup': pickupLabel,
-                  'dest': destLabel,
-                };
-                _metaCache[rideId] = meta;
-                return meta;
+              if (docs.isEmpty) {
+                return const Center(child: Text('No pending rides'));
               }
 
-              return Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 6,
-                ),
-                child: styledCard(
-                  child: FutureBuilder<Map<String, String?>>(
-                    future: resolveMeta(),
-                    builder: (context, snap) {
-                      final meta = snap.data;
-                      final studentLabel =
-                          (meta != null ? meta['studentName'] : null) ??
-                          (d['studentId'] ?? 'Unknown');
-                      final pickupLabel = meta != null
-                          ? (meta['pickup'] ??
-                                '${(d['pickup'] as GeoPoint?)?.latitude},${(d['pickup'] as GeoPoint?)?.longitude}')
-                          : 'Loading...';
-                      final destLabel = meta != null
-                          ? (meta['dest'] ??
-                                '${(d['destination'] as GeoPoint?)?.latitude},${(d['destination'] as GeoPoint?)?.longitude}')
-                          : 'Loading...';
+              return ListView.builder(
+                itemCount: docs.length,
+                itemBuilder: (context, index) {
+                  final doc = docs[index];
+                  final d = doc.data() as Map<String, dynamic>;
+                  final rideId = doc.id;
+                  final special = d['specialNeeds'] as Map<String, dynamic>?;
 
-                      return Row(
-                        children: [
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  '$studentLabel • Ride $rideId',
-                                  style: sectionTitleStyle(),
-                                ),
-                                const SizedBox(height: 6),
-                                Text(
-                                  'Pickup: $pickupLabel',
-                                  style: subtleStyle(),
-                                ),
-                                Text(
-                                  'Destination: $destLabel',
-                                  style: subtleStyle(),
-                                ),
-                                if ((special?['notes'] ?? '')
-                                    .toString()
-                                    .isNotEmpty)
-                                  Padding(
-                                    padding: const EdgeInsets.only(top: 6.0),
-                                    child: Text(
-                                      'Notes: ${special?['notes']}',
+                  Future<Map<String, String?>> resolveMeta() async {
+                    if (_metaCache.containsKey(rideId)) {
+                      return _metaCache[rideId]!;
+                    }
+                    String studentName = (d['studentName'] as String?) ?? '';
+                    final sid = d['studentId'] as String?;
+                    if ((studentName.isEmpty) && sid != null) {
+                      final sdoc = await FirebaseFirestore.instance
+                          .collection('students')
+                          .doc(sid)
+                          .get();
+                      if (sdoc.exists && sdoc.data() != null) {
+                        studentName =
+                            (sdoc.data() as Map<String, dynamic>)['fullName']
+                                as String? ??
+                            sid;
+                      } else {
+                        studentName = sid;
+                      }
+                    }
+
+                    String? pickupLabel;
+                    String? destLabel;
+                    final pickup = d['pickup'] as GeoPoint?;
+                    final dest = d['destination'] as GeoPoint?;
+                    if (pickup != null) {
+                      pickupLabel = await resolveLabel(
+                        pickup.latitude,
+                        pickup.longitude,
+                      );
+                    }
+                    if (dest != null) {
+                      destLabel = await resolveLabel(
+                        dest.latitude,
+                        dest.longitude,
+                      );
+                    }
+
+                    final meta = {
+                      'studentName': studentName,
+                      'pickup': pickupLabel,
+                      'dest': destLabel,
+                    };
+                    _metaCache[rideId] = meta;
+                    return meta;
+                  }
+
+                  return Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 6,
+                    ),
+                    child: styledCard(
+                      child: FutureBuilder<Map<String, String?>>(
+                        future: resolveMeta(),
+                        builder: (context, snap) {
+                          final meta = snap.data;
+                          final studentLabel =
+                              (meta != null ? meta['studentName'] : null) ??
+                              (d['studentId'] ?? 'Unknown');
+                          final pickupLabel = meta != null
+                              ? (meta['pickup'] ??
+                                    '${(d['pickup'] as GeoPoint?)?.latitude},${(d['pickup'] as GeoPoint?)?.longitude}')
+                              : 'Loading...';
+                          final destLabel = meta != null
+                              ? (meta['dest'] ??
+                                    '${(d['destination'] as GeoPoint?)?.latitude},${(d['destination'] as GeoPoint?)?.longitude}')
+                              : 'Loading...';
+
+                          return Row(
+                            children: [
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      '$studentLabel • Ride $rideId',
+                                      style: sectionTitleStyle(),
+                                    ),
+                                    const SizedBox(height: 6),
+                                    Text(
+                                      'Pickup: $pickupLabel',
                                       style: subtleStyle(),
                                     ),
-                                  ),
-                              ],
-                            ),
-                          ),
-                          Column(
-                            children: [
-                              ElevatedButton(
-                                onPressed: () => _accept(rideId),
-                                style: primaryButtonStyle(),
-                                child: const Text('Accept'),
-                              ),
-                              const SizedBox(height: 8),
-                              OutlinedButton(
-                                onPressed: () async {
-                                  final user =
-                                      FirebaseAuth.instance.currentUser;
-                                  if (user == null) return;
-                                  final messenger = ScaffoldMessenger.of(
-                                    context,
-                                  );
-                                  final ok = await _rideService.rejectRide(
-                                    rideId: rideId,
-                                    driverId: user.uid,
-                                  );
-                                  if (!mounted) return;
-                                  messenger.showSnackBar(
-                                    SnackBar(
-                                      content: Text(
-                                        ok
-                                            ? 'Ride rejected'
-                                            : 'Unable to reject',
-                                      ),
+                                    Text(
+                                      'Destination: $destLabel',
+                                      style: subtleStyle(),
                                     ),
-                                  );
-                                },
-                                child: const Text('Reject'),
+                                    if ((special?['notes'] ?? '')
+                                        .toString()
+                                        .isNotEmpty)
+                                      Padding(
+                                        padding: const EdgeInsets.only(
+                                          top: 6.0,
+                                        ),
+                                        child: Text(
+                                          'Notes: ${special?['notes']}',
+                                          style: subtleStyle(),
+                                        ),
+                                      ),
+                                  ],
+                                ),
+                              ),
+                              Column(
+                                children: [
+                                  ElevatedButton(
+                                    onPressed: () => _accept(rideId),
+                                    style: primaryButtonStyle(),
+                                    child: const Text('Accept'),
+                                  ),
+                                  const SizedBox(height: 8),
+                                  OutlinedButton(
+                                    onPressed: () async {
+                                      final user =
+                                          FirebaseAuth.instance.currentUser;
+                                      if (user == null) return;
+                                      final messenger = ScaffoldMessenger.of(
+                                        context,
+                                      );
+                                      final ok = await _rideService.rejectRide(
+                                        rideId: rideId,
+                                        driverId: user.uid,
+                                      );
+                                      if (!mounted) return;
+                                      messenger.showSnackBar(
+                                        SnackBar(
+                                          content: Text(
+                                            ok
+                                                ? 'Ride rejected'
+                                                : 'Unable to reject',
+                                          ),
+                                        ),
+                                      );
+                                    },
+                                    child: const Text('Reject'),
+                                  ),
+                                ],
                               ),
                             ],
-                          ),
-                        ],
-                      );
-                    },
-                  ),
-                ),
+                          );
+                        },
+                      ),
+                    ),
+                  );
+                },
               );
             },
           );

@@ -487,7 +487,7 @@ class _DriverRideTrackingPageState extends State<DriverRideTrackingPage> {
       actions: [
         IconButton(
           tooltip: 'Chat with student',
-          onPressed: () {
+          onPressed: () async {
             if ((_studentId == null && widget.chatId == null) ||
                 _currentUserId == null) {
               ScaffoldMessenger.of(context).showSnackBar(
@@ -495,15 +495,25 @@ class _DriverRideTrackingPageState extends State<DriverRideTrackingPage> {
               );
               return;
             }
-            final chatId =
-                widget.chatId ??
-                ChatService.chatIdFor(_currentUserId!, _studentId!);
-            Navigator.push(
-              context,
+
+            final navigator = Navigator.of(context);
+
+            final a = _currentUserId!;
+            final b = _studentId ?? '';
+            String chatId;
+            if (widget.chatId != null) {
+              chatId = widget.chatId!;
+            } else {
+              chatId = ChatService.chatIdFor(a, b);
+              await ChatService().createChatIfNotExists(a: a, b: b);
+            }
+
+            if (!mounted) return;
+            navigator.push(
               MaterialPageRoute(
                 builder: (_) => ChatPage(
                   chatId: chatId,
-                  otherUserId: _studentId ?? '',
+                  otherUserId: b,
                   otherUserName: _studentName,
                 ),
               ),
@@ -645,7 +655,7 @@ class _DriverRideTrackingPageState extends State<DriverRideTrackingPage> {
                   bottom: 12,
                   child: FloatingActionButton.small(
                     heroTag: 'tracking_chat',
-                    onPressed: () {
+                    onPressed: () async {
                       if ((_studentId == null && widget.chatId == null) ||
                           _currentUserId == null) {
                         ScaffoldMessenger.of(context).showSnackBar(
@@ -655,15 +665,25 @@ class _DriverRideTrackingPageState extends State<DriverRideTrackingPage> {
                         );
                         return;
                       }
-                      final chatId =
-                          widget.chatId ??
-                          ChatService.chatIdFor(_currentUserId!, _studentId!);
-                      Navigator.push(
-                        context,
+
+                      // ensure chat doc exists (create if needed) so unreadCounts etc. are present
+                      final a = _currentUserId!;
+                      final b = _studentId ?? '';
+                      String chatId;
+                      final navigator = Navigator.of(context);
+                      if (widget.chatId != null) {
+                        chatId = widget.chatId!;
+                      } else {
+                        chatId = ChatService.chatIdFor(a, b);
+                        await ChatService().createChatIfNotExists(a: a, b: b);
+                      }
+
+                      if (!mounted) return;
+                      navigator.push(
                         MaterialPageRoute(
                           builder: (_) => ChatPage(
                             chatId: chatId,
-                            otherUserId: _studentId ?? '',
+                            otherUserId: b,
                             otherUserName: _studentName,
                           ),
                         ),

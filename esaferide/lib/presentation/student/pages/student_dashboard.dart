@@ -7,6 +7,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:esaferide/presentation/student/pages/student_profile.dart';
 import 'package:esaferide/presentation/student/pages/new_ride_page.dart';
+import 'package:esaferide/presentation/student/pages/completed_trips_page.dart';
 import 'package:geolocator/geolocator.dart';
 
 class StudentDashboard extends StatefulWidget {
@@ -525,7 +526,23 @@ class _StudentDashboardState extends State<StudentDashboard>
           final item = actions[i];
           final Color itemColor = item['color'] as Color;
           return GestureDetector(
-            onTap: () {},
+            onTap: () {
+              final title = item['title'] as String;
+              if (title == 'My Trips') {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const CompletedTripsPage()),
+                );
+                return;
+              }
+              if (title == 'Messages') {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const SizedBox()),
+                );
+                return;
+              }
+            },
             child: AnimatedContainer(
               duration: const Duration(milliseconds: 350),
               width: 140,
