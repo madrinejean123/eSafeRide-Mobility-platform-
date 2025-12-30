@@ -25,7 +25,7 @@ dependencies:
   # Media & files
   image_picker: ^1.2.1
   record: ^4.4.4
-  path_provider: ^2.0.22
+  path_provider: ^2.2.22
   uuid: ^3.0.7
 
   # Location & maps
@@ -35,16 +35,15 @@ dependencies:
 
   # Network & permissions
   http: ^1.6.0
-  permission_handler: ^12.0.1     # ✅ valid version on pub.dev
+  permission_handler: ^12.1.0
 
-  # JS interop for web-specific implementations
+  # JS interop
   js: ^0.6.7
   rxdart: ^0.28.0
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
-
   flutter_lints: ^3.0.2
 
 flutter:
