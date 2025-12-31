@@ -1,103 +1,113 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:esaferide/firebase_options.dart';
+import 'package:url_launcher/url_launcher_string.dart';
 
-class CompletedTripsPage extends StatefulWidget {
-  const CompletedTripsPage({super.key});
-
-  @override
-  State<CompletedTripsPage> createState() => _CompletedTripsPageState();
-}
-
-class _CompletedTripsPageState extends State<CompletedTripsPage> {
-  final Map<String, String> _driverNameCache = {};
-  final Set<String> _resolving = {};
-
-  Future<void> _resolveDriverName(String id) async {
-    if (_driverNameCache.containsKey(id) || _resolving.contains(id)) return;
-    _resolving.add(id);
-    try {
-      final doc = await FirebaseFirestore.instance
-          .collection('drivers')
-          .doc(id)
-          .get();
-      final data = doc.data();
-      if (!mounted) return;
-      setState(() {
-        _driverNameCache[id] = (data?['fullName'] as String?) ?? 'Driver';
-      });
-    } catch (_) {
-      if (!mounted) return;
-      setState(() {
-        _driverNameCache[id] = 'Driver';
-      });
-    } finally {
-      _resolving.remove(id);
-    }
-  }
+class CompletedRidesPage extends StatelessWidget {
+  const CompletedRidesPage({super.key});
 
   @override
   Widget build(BuildContext context) {
-    final uid = FirebaseAuth.instance.currentUser?.uid;
-    if (uid == null) {
+    final user = FirebaseAuth.instance.currentUser;
+
+    if (user == null) {
       return const Scaffold(body: Center(child: Text('Sign in required')));
     }
 
-    final tripsCol = FirebaseFirestore.instance
-        .collection('trips')
-        .where('studentId', isEqualTo: uid)
-        .orderBy('createdAt', descending: true)
-        .limit(50);
+    // Query only completed rides for the current student
+    final ridesStream = FirebaseFirestore.instance
+        .collection('rides')
+        .where('studentId', isEqualTo: user.uid)
+        .where('status', isEqualTo: 'completed')
+        .orderBy('completedAt', descending: true)
+        .snapshots();
 
     return Scaffold(
-      appBar: AppBar(title: const Text('My Trips')),
+      appBar: AppBar(title: const Text('Completed Rides')),
       body: StreamBuilder<QuerySnapshot>(
-        stream: tripsCol.snapshots(),
-        builder: (context, snap) {
-          if (snap.hasError) {
-            return const Center(child: Text('Error loading trips'));
-          }
-          if (!snap.hasData) {
+        stream: ridesStream,
+        builder: (context, snapshot) {
+          if (!snapshot.hasData) {
             return const Center(child: CircularProgressIndicator());
           }
 
-          final docs = snap.data!.docs;
-          if (docs.isEmpty) return const Center(child: Text('No trips yet'));
+          final rides = snapshot.data!.docs;
+
+          if (rides.isEmpty) {
+            return const Center(child: Text('No completed rides yet'));
+          }
 
           return ListView.builder(
-            itemCount: docs.length,
-            itemBuilder: (context, i) {
-              final d = docs[i];
-              final data = d.data() as Map<String, dynamic>;
-              final driverId = data['driverId'] as String? ?? '';
-              final fare = data['fare']?.toString() ?? '';
-              final duration = (data['durationSeconds'] as int?) ?? 0;
-              final created = data['createdAt'] as Timestamp?;
+            padding: const EdgeInsets.all(12),
+            itemCount: rides.length,
+            itemBuilder: (context, index) {
+              final ride = rides[index].data() as Map<String, dynamic>;
 
-              // Resolve driver name async
-              if (driverId.isNotEmpty &&
-                  !_driverNameCache.containsKey(driverId) &&
-                  !_resolving.contains(driverId)) {
-                _resolveDriverName(driverId);
-              }
+              final driverId = ride['driverId'] as String?;
+              final fare = ride['fare'] ?? 0;
+              final duration = ride['durationSeconds'] ?? 0;
+              final pickup = ride['pickup'] as GeoPoint?;
+              final destination = ride['destination'] as GeoPoint?;
+              final completedAt = ride['completedAt'] as Timestamp?;
 
-              final driverName = driverId.isNotEmpty
-                  ? (_driverNameCache[driverId] ?? 'Driver')
-                  : 'Driver';
+              return FutureBuilder<DocumentSnapshot>(
+                future: driverId != null
+                    ? FirebaseFirestore.instance
+                          .collection('drivers')
+                          .doc(driverId)
+                          .get()
+                    : null,
+                builder: (context, driverSnap) {
+                  String driverName = 'Driver';
+                  if (driverSnap.hasData && driverSnap.data!.exists) {
+                    final data =
+                        driverSnap.data!.data() as Map<String, dynamic>?;
+                    driverName = data?['fullName'] ?? 'Driver';
+                  }
 
-              final timeStr = created != null
-                  ? TimeOfDay.fromDateTime(created.toDate()).format(context)
-                  : '';
+                  final timeStr = completedAt != null
+                      ? TimeOfDay.fromDateTime(
+                          completedAt.toDate(),
+                        ).format(context)
+                      : '';
 
-              return ListTile(
-                leading: CircleAvatar(
-                  child: Text(
-                    driverName.isNotEmpty ? driverName[0].toUpperCase() : '?',
-                  ),
-                ),
-                title: Text(driverName),
-                subtitle: Text('Duration: ${duration}s • Fare: \$$fare'),
-                trailing: Text(timeStr, style: const TextStyle(fontSize: 12)),
+                  return Card(
+                    elevation: 2,
+                    child: ListTile(
+                      leading: CircleAvatar(
+                        child: Text(
+                          driverName.isNotEmpty ? driverName[0] : '?',
+                        ),
+                      ),
+                      title: Text(
+                        'From: ${pickup?.latitude.toStringAsFixed(3)}, ${pickup?.longitude.toStringAsFixed(3)}\nTo: ${destination?.latitude.toStringAsFixed(3)}, ${destination?.longitude.toStringAsFixed(3)}',
+                      ),
+                      subtitle: Text('Duration: ${duration}s • Fare: \$$fare'),
+                      trailing: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            timeStr,
+                            style: const TextStyle(fontSize: 12),
+                          ),
+                          IconButton(
+                            tooltip: 'Open in Firebase',
+                            onPressed: () async {
+                              final projectId =
+                                  DefaultFirebaseOptions.currentPlatform.projectId;
+                              final path = '~2Frides~2F${rides[index].id}';
+                              final url =
+                                  'https://console.firebase.google.com/project/$projectId/firestore/data/$path';
+                              await launchUrlString(url);
+                            },
+                            icon: const Icon(Icons.open_in_new),
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                },
               );
             },
           );

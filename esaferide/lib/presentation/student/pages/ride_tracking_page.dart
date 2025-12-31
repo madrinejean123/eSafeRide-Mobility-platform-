@@ -223,7 +223,7 @@ class _RideTrackingPageState extends State<RideTrackingPage> {
         position: pos,
         icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure),
         infoWindow: InfoWindow(
-          title: 'Driver',
+          title: _driverName ?? 'Driver',
           snippet: _driverName ?? _driverId ?? '',
         ),
       );
@@ -484,7 +484,7 @@ class _RideTrackingPageState extends State<RideTrackingPage> {
                         ),
                       ),
                       Text(
-                        'Driver: ${_driverId ?? 'Not assigned'}',
+                        'Driver: ${_driverName ?? _driverId ?? 'Not assigned'}',
                         style: subtleStyle(),
                       ),
                     ],

@@ -35,6 +35,7 @@ class _StudentDashboardState extends State<StudentDashboard>
   String _fullName = '';
   String _course = '';
   String _regNumber = '';
+  GeoPoint? _initialPickup;
 
   // Soft palette
   static const Color _primaryStart = Color(0xFF3E71DF);
@@ -54,6 +55,31 @@ class _StudentDashboardState extends State<StudentDashboard>
 
     _startCountdown();
     _loadStudentInfo();
+    // Try to silently obtain current location to speed up ride requests.
+    // This will only run if permissions are already granted; it won't prompt the
+    // user on its own. The existing New Ride flow still requests permissions
+    // when the user taps "New Ride".
+    _tryFetchInitialLocation();
+  }
+
+  Future<void> _tryFetchInitialLocation() async {
+    try {
+      final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) return;
+      final permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied ||
+          permission == LocationPermission.deniedForever) {
+        return; // Do not prompt here; preserve existing UX on button press.
+      }
+      final pos = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.best,
+      );
+      setState(() {
+        _initialPickup = GeoPoint(pos.latitude, pos.longitude);
+      });
+    } catch (_) {
+      // ignore failures — we'll prompt later when user requests a ride
+    }
   }
 
   Future<void> _loadStudentInfo() async {
@@ -183,9 +209,14 @@ class _StudentDashboardState extends State<StudentDashboard>
           content: Text('Unable to fetch location — enter manually.'),
         ),
       );
-      Navigator.of(
-        context,
-      ).push(MaterialPageRoute(builder: (_) => const NewRidePage()));
+      // Fall back to NewRidePage — if we previously fetched an initial pickup
+      // silently, pass it along so the picker is pre-centered.
+      if (!mounted) return;
+      Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => NewRidePage(initialPickup: _initialPickup),
+        ),
+      );
     }
   }
 
@@ -511,7 +542,7 @@ class _StudentDashboardState extends State<StudentDashboard>
                   Navigator.push(
                     context,
                     MaterialPageRoute(
-                      builder: (_) => const CompletedTripsPage(),
+                      builder: (_) => const CompletedRidesPage(),
                     ),
                   );
                 },
@@ -571,7 +602,7 @@ class _StudentDashboardState extends State<StudentDashboard>
               if (title == 'My Trips') {
                 Navigator.push(
                   context,
-                  MaterialPageRoute(builder: (_) => const CompletedTripsPage()),
+                  MaterialPageRoute(builder: (_) => const CompletedRidesPage()),
                 );
                 return;
               }

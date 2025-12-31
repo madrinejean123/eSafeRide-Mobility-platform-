@@ -31,20 +31,17 @@ class _AdminRidesPageBodyState extends State<AdminRidesPageBody> {
   @override
   void initState() {
     super.initState();
-
-    // Combine pending and completed into a single stream
     _ridesStream = _rideCol
         .where('status', whereIn: ['pending', 'completed'])
         .orderBy('createdAt', descending: true)
         .snapshots()
         .map((snap) => snap.docs)
-        .asBroadcastStream(); // Make it broadcast to avoid multiple listens
+        .asBroadcastStream();
   }
 
   Future<void> _resolveStudentName(String id) async {
     if (_studentNameCache.containsKey(id) || _resolving.contains(id)) return;
     _resolving.add(id);
-
     try {
       final doc = await FirebaseFirestore.instance
           .collection('students')
@@ -74,6 +71,7 @@ class _AdminRidesPageBodyState extends State<AdminRidesPageBody> {
           stream: _ridesStream,
           builder: (context, snapshot) {
             if (snapshot.hasError) {
+              debugPrint('AdminRidesPage stream error: ${snapshot.error}');
               return const Center(child: Text('Error loading rides'));
             }
             if (!snapshot.hasData) {
@@ -89,34 +87,46 @@ class _AdminRidesPageBodyState extends State<AdminRidesPageBody> {
               padding: const EdgeInsets.all(12),
               itemCount: docs.length,
               itemBuilder: (context, index) {
-                final d = docs[index];
-                final data = d.data() as Map<String, dynamic>;
-                final studentId = data['studentId'] as String?;
+                try {
+                  final doc = docs[index];
+                  final data = doc.data() as Map<String, dynamic>;
+                  final studentId = data['studentId'] as String?;
 
-                // Resolve student name safely after build
-                if (studentId != null &&
-                    !_studentNameCache.containsKey(studentId) &&
-                    !_resolving.contains(studentId)) {
-                  WidgetsBinding.instance.addPostFrameCallback((_) {
-                    _resolveStudentName(studentId);
-                  });
+                  if (studentId != null &&
+                      !_studentNameCache.containsKey(studentId) &&
+                      !_resolving.contains(studentId)) {
+                    WidgetsBinding.instance.addPostFrameCallback((_) {
+                      _resolveStudentName(studentId);
+                    });
+                  }
+
+                  final studentName = studentId != null
+                      ? (_studentNameCache[studentId] ?? 'Student')
+                      : (data['studentName'] ?? 'Student');
+
+                  final pickup = data['pickup'] as GeoPoint?;
+                  final destination = data['destination'] as GeoPoint?;
+                  final status = data['status'] as String? ?? 'pending';
+                  final createdAt = data['createdAt'] as Timestamp?;
+
+                  return _RideCard(
+                    rideId: doc.id,
+                    studentName: studentName,
+                    pickup: pickup,
+                    destination: destination,
+                    status: status,
+                    createdAt: createdAt,
+                  );
+                } catch (e, st) {
+                  debugPrint('AdminRidesPage itemBuilder error: $e\n$st');
+                  return Card(
+                    elevation: 1,
+                    child: Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: Text('Error rendering ride item'),
+                    ),
+                  );
                 }
-
-                final studentName = studentId != null
-                    ? (_studentNameCache[studentId] ?? 'Student')
-                    : (data['studentName'] ?? 'Student');
-
-                final gp = data['pickup'] as GeoPoint?;
-                final dest = data['destination'] as GeoPoint?;
-
-                return _RideCard(
-                  rideId: d.id,
-                  studentName: studentName,
-                  pickup: gp,
-                  destination: dest,
-                  status: data['status'] as String? ?? 'pending',
-                  createdAt: data['createdAt'] as Timestamp?,
-                );
               },
             );
           },

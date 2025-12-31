@@ -77,33 +77,46 @@ class _CompletedJobsPageState extends State<CompletedJobsPage> {
             separatorBuilder: (_, __) => const Divider(),
             itemCount: docs.length,
             itemBuilder: (context, index) {
-              final d = docs[index];
-              final data = d.data() as Map<String, dynamic>;
-              final studentId = data['studentId'] as String? ?? '';
-              final fare = data['fare']?.toString() ?? '';
-              final duration = (data['durationSeconds'] as int?) ?? 0;
-              final created = data['createdAt'] as Timestamp?;
+              try {
+                final d = docs[index];
+                final data = d.data() as Map<String, dynamic>;
+                final studentId = data['studentId'] as String? ?? '';
+                final fare = data['fare']?.toString() ?? '';
+                final duration = (data['durationSeconds'] as int?) ?? 0;
+                final created = data['createdAt'] as Timestamp?;
 
-              // Resolve student name async but safely
-              if (!_nameCache.containsKey(studentId) &&
-                  !_resolving.contains(studentId)) {
-                _resolveStudentName(studentId);
-              }
-              final studentName = _nameCache[studentId] ?? 'Student';
-              final timeStr = created != null
-                  ? TimeOfDay.fromDateTime(created.toDate()).format(context)
-                  : '';
+                // Resolve student name async but safely
+                if (!_nameCache.containsKey(studentId) &&
+                    !_resolving.contains(studentId)) {
+                  _resolveStudentName(studentId);
+                }
+                final studentName = _nameCache[studentId] ?? 'Student';
+                final timeStr = created != null
+                    ? TimeOfDay.fromDateTime(created.toDate()).format(context)
+                    : '';
 
-              return ListTile(
-                leading: CircleAvatar(
-                  child: Text(
-                    studentName.isNotEmpty ? studentName[0].toUpperCase() : '?',
+                return ListTile(
+                  leading: CircleAvatar(
+                    child: Text(
+                      studentName.isNotEmpty
+                          ? studentName[0].toUpperCase()
+                          : '?',
+                    ),
                   ),
-                ),
-                title: Text(studentName),
-                subtitle: Text('Duration: ${duration}s • Fare: \$$fare'),
-                trailing: Text(timeStr, style: const TextStyle(fontSize: 12)),
-              );
+                  title: Text(studentName),
+                  subtitle: Text('Duration: ${duration}s • Fare: \$$fare'),
+                  trailing: Text(timeStr, style: const TextStyle(fontSize: 12)),
+                );
+              } catch (e, st) {
+                debugPrint('completed_jobs itemBuilder error: $e\n$st');
+                return Card(
+                  elevation: 1,
+                  child: Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: Text('Error rendering completed job'),
+                  ),
+                );
+              }
             },
           );
         },

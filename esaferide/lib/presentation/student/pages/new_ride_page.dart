@@ -125,6 +125,7 @@ class _NewRidePageState extends State<NewRidePage> {
   }
 
   Widget _buildMapPickerForPickup(LatLng? selected) {
+    final Completer<GoogleMapController> ctrl = Completer();
     return GoogleMap(
       initialCameraPosition: CameraPosition(
         target: _pickup != null
@@ -133,16 +134,24 @@ class _NewRidePageState extends State<NewRidePage> {
         zoom: 16,
       ),
       myLocationEnabled: true,
+      onMapCreated: (c) async {
+        ctrl.complete(c);
+        // animate to current pickup if available
+        if (_pickup != null) {
+          await c.animateCamera(
+            CameraUpdate.newLatLng(
+              LatLng(_pickup!.latitude, _pickup!.longitude),
+            ),
+          );
+        }
+      },
       onTap: (pos) async {
-        selected = pos;
         final label = await resolveLabel(pos.latitude, pos.longitude);
 
         _pickup = GeoPoint(pos.latitude, pos.longitude);
         _pickupLabel = label ?? 'Selected pickup';
 
-        if (!mounted) {
-          return;
-        }
+        if (!mounted) return;
         Navigator.of(context).pop();
         setState(() {});
       },
@@ -184,38 +193,53 @@ class _NewRidePageState extends State<NewRidePage> {
             ),
             Expanded(
               child: suggestions.isEmpty
-                  ? GoogleMap(
-                      initialCameraPosition: CameraPosition(
-                        target: _pickup != null
-                            ? LatLng(_pickup!.latitude, _pickup!.longitude)
-                            : const LatLng(0.3356, 32.5686),
-                        zoom: 16,
-                      ),
-                      myLocationEnabled: true,
-                      onTap: (pos) async {
-                        selected = pos;
-                        final label = await resolveLabel(
-                          pos.latitude,
-                          pos.longitude,
+                  ? Builder(
+                      builder: (ctx) {
+                        final Completer<GoogleMapController> controller =
+                            Completer<GoogleMapController>();
+                        return GoogleMap(
+                          initialCameraPosition: CameraPosition(
+                            target: _pickup != null
+                                ? LatLng(_pickup!.latitude, _pickup!.longitude)
+                                : const LatLng(0.3356, 32.5686),
+                            zoom: 16,
+                          ),
+                          myLocationEnabled: true,
+                          onMapCreated: (c) async {
+                            controller.complete(c);
+                            if (_pickup != null) {
+                              await c.animateCamera(
+                                CameraUpdate.newLatLng(
+                                  LatLng(_pickup!.latitude, _pickup!.longitude),
+                                ),
+                              );
+                            }
+                          },
+                          onTap: (pos) async {
+                            // update selected marker visually in the modal
+                            setModalState(() => selected = pos);
+                            final label = await resolveLabel(
+                              pos.latitude,
+                              pos.longitude,
+                            );
+
+                            _pickup = GeoPoint(pos.latitude, pos.longitude);
+                            _pickupLabel = label ?? 'Selected pickup';
+
+                            if (!mounted) return;
+                            Navigator.of(this.context).pop();
+                            setState(() {});
+                          },
+                          markers: selected == null
+                              ? {}
+                              : {
+                                  Marker(
+                                    markerId: const MarkerId('pickup'),
+                                    position: selected!,
+                                  ),
+                                },
                         );
-
-                        _pickup = GeoPoint(pos.latitude, pos.longitude);
-                        _pickupLabel = label ?? 'Selected pickup';
-
-                        if (!mounted) {
-                          return;
-                        }
-                        Navigator.of(this.context).pop();
-                        setState(() {});
                       },
-                      markers: selected == null
-                          ? {}
-                          : {
-                              Marker(
-                                markerId: const MarkerId('pickup'),
-                                position: selected!,
-                              ),
-                            },
                     )
                   : ListView.builder(
                       itemCount: suggestions.length,
@@ -334,6 +358,7 @@ class _NewRidePageState extends State<NewRidePage> {
 
   // ---------- MAP PICKER (Web + fallback) ----------
   Widget _buildMapPicker(LatLng? selected) {
+    final Completer<GoogleMapController> ctrl = Completer();
     return GoogleMap(
       initialCameraPosition: CameraPosition(
         target: _pickup != null
@@ -342,16 +367,23 @@ class _NewRidePageState extends State<NewRidePage> {
         zoom: 16,
       ),
       myLocationEnabled: true,
+      onMapCreated: (c) async {
+        ctrl.complete(c);
+        if (_destination != null) {
+          await c.animateCamera(
+            CameraUpdate.newLatLng(
+              LatLng(_destination!.latitude, _destination!.longitude),
+            ),
+          );
+        }
+      },
       onTap: (pos) async {
-        selected = pos;
         final label = await resolveLabel(pos.latitude, pos.longitude);
 
         _destination = GeoPoint(pos.latitude, pos.longitude);
         _destinationLabel = label ?? 'Selected location';
 
-        if (!mounted) {
-          return;
-        }
+        if (!mounted) return;
         Navigator.of(context).pop();
         setState(() {});
       },
@@ -394,38 +426,58 @@ class _NewRidePageState extends State<NewRidePage> {
             ),
             Expanded(
               child: suggestions.isEmpty
-                  ? GoogleMap(
-                      initialCameraPosition: CameraPosition(
-                        target: _pickup != null
-                            ? LatLng(_pickup!.latitude, _pickup!.longitude)
-                            : const LatLng(0.3356, 32.5686),
-                        zoom: 16,
-                      ),
-                      myLocationEnabled: true,
-                      onTap: (pos) async {
-                        selected = pos;
-                        final label = await resolveLabel(
-                          pos.latitude,
-                          pos.longitude,
+                  ? Builder(
+                      builder: (ctx) {
+                        final Completer<GoogleMapController> controller =
+                            Completer<GoogleMapController>();
+                        return GoogleMap(
+                          initialCameraPosition: CameraPosition(
+                            target: _pickup != null
+                                ? LatLng(_pickup!.latitude, _pickup!.longitude)
+                                : const LatLng(0.3356, 32.5686),
+                            zoom: 16,
+                          ),
+                          myLocationEnabled: true,
+                          onMapCreated: (c) async {
+                            controller.complete(c);
+                            if (_destination != null) {
+                              await c.animateCamera(
+                                CameraUpdate.newLatLng(
+                                  LatLng(
+                                    _destination!.latitude,
+                                    _destination!.longitude,
+                                  ),
+                                ),
+                              );
+                            }
+                          },
+                          onTap: (pos) async {
+                            setModalState(() => selected = pos);
+                            final label = await resolveLabel(
+                              pos.latitude,
+                              pos.longitude,
+                            );
+
+                            _destination = GeoPoint(
+                              pos.latitude,
+                              pos.longitude,
+                            );
+                            _destinationLabel = label ?? 'Selected location';
+
+                            if (!mounted) return;
+                            Navigator.of(this.context).pop();
+                            setState(() {});
+                          },
+                          markers: selected == null
+                              ? {}
+                              : {
+                                  Marker(
+                                    markerId: const MarkerId('dest'),
+                                    position: selected!,
+                                  ),
+                                },
                         );
-
-                        _destination = GeoPoint(pos.latitude, pos.longitude);
-                        _destinationLabel = label ?? 'Selected location';
-
-                        if (!mounted) {
-                          return;
-                        }
-                        Navigator.of(this.context).pop();
-                        setState(() {});
                       },
-                      markers: selected == null
-                          ? {}
-                          : {
-                              Marker(
-                                markerId: const MarkerId('dest'),
-                                position: selected!,
-                              ),
-                            },
                     )
                   : ListView.builder(
                       itemCount: suggestions.length,
