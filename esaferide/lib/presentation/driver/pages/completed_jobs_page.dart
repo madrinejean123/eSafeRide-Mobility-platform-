@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:esaferide/presentation/shared/completed_item_helpers.dart';
+import 'package:esaferide/presentation/shared/app_scaffold.dart';
 
 class CompletedJobsPage extends StatefulWidget {
   const CompletedJobsPage({super.key});
@@ -55,9 +56,9 @@ class _CompletedJobsPageState extends State<CompletedJobsPage> {
         .orderBy('createdAt', descending: true)
         .limit(50);
 
-    return Scaffold(
-      appBar: AppBar(title: const Text('Completed Jobs')),
-      body: StreamBuilder<QuerySnapshot>(
+    return AppScaffold(
+      title: 'Completed Jobs',
+      child: StreamBuilder<QuerySnapshot>(
         stream: tripsCol.snapshots(),
         builder: (context, snap) {
           if (snap.hasError) {
@@ -96,19 +97,13 @@ class _CompletedJobsPageState extends State<CompletedJobsPage> {
                     ? TimeOfDay.fromDateTime(created.toDate()).format(context)
                     : '';
 
-                return ListTile(
-                  leading: CircleAvatar(
-                    child: Text(
-                      studentName.isNotEmpty
-                          ? studentName[0].toUpperCase()
-                          : '?',
-                    ),
-                  ),
-                  title: Text(studentName),
-                  subtitle: Text(
-                    'Duration: ${duration}s • Fare: ${formatCurrency(fareRaw)}',
-                  ),
-                  trailing: Text(timeStr, style: const TextStyle(fontSize: 12)),
+                return CompletedRideTile(
+                  avatarText: studentName,
+                  title: studentName,
+                  pickupLabel: data['pickupLabel'] as String?,
+                  destinationLabel: data['destinationLabel'] as String?,
+                  fareLabel: '${formatCurrency(fareRaw)} • ${duration}s',
+                  timeLabel: timeStr,
                 );
               } catch (e, st) {
                 debugPrint('completed_jobs itemBuilder error: $e\n$st');

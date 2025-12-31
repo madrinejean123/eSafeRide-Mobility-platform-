@@ -176,17 +176,18 @@ class _RideCard extends StatelessWidget {
       elevation: 2,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       child: ListTile(
+        dense: true,
         contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        title: Column(
+        title: Text(
+          'Ride $rideId — $studentName',
+          style: sectionTitleStyle(),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
+        subtitle: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
           children: [
-            Text('Ride $rideId', style: sectionTitleStyle()),
-            const SizedBox(height: 6),
-            Text(
-              'Student: $studentName',
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
             if (pickup != null)
               Text(
                 'Pickup: ${formatGeo(pickup)}',
@@ -199,59 +200,66 @@ class _RideCard extends StatelessWidget {
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
               ),
-          ],
-        ),
-        trailing: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.end,
-          children: [
-            Text(fareLabel, style: sectionTitleStyle()),
             const SizedBox(height: 6),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-              decoration: BoxDecoration(
-                color: statusColor.withAlpha(50),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Text(
-                status.toUpperCase(),
-                style: TextStyle(
-                  color: statusColor,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ),
-            const SizedBox(height: 8),
-            TextButton(
-              onPressed: () {
-                showDialog(
-                  context: context,
-                  builder: (ctx) => AlertDialog(
-                    title: Text('Ride $rideId'),
-                    content: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('Student: $studentName'),
-                        const SizedBox(height: 8),
-                        Text('Status: $status'),
-                        const SizedBox(height: 8),
-                        Text('Created: $createdStr'),
-                      ],
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    fareLabel,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
                     ),
-                    actions: [
-                      TextButton(
-                        onPressed: () => Navigator.of(ctx).pop(),
-                        child: const Text('Close'),
-                      ),
-                    ],
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
-                );
-              },
-              child: const Text('View'),
+                ),
+                const SizedBox(width: 8),
+                Text(createdStr, style: const TextStyle(fontSize: 11)),
+              ],
             ),
           ],
         ),
+        trailing: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+          decoration: BoxDecoration(
+            color: statusColor.withAlpha(50),
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Text(
+            status.toUpperCase(),
+            style: TextStyle(
+              color: statusColor,
+              fontWeight: FontWeight.bold,
+              fontSize: 11,
+            ),
+          ),
+        ),
+        onTap: () {
+          showDialog(
+            context: context,
+            builder: (ctx) => AlertDialog(
+              title: Text('Ride $rideId'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Student: $studentName'),
+                  const SizedBox(height: 8),
+                  Text('Status: $status'),
+                  const SizedBox(height: 8),
+                  Text('Created: $createdStr'),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(ctx).pop(),
+                  child: const Text('Close'),
+                ),
+              ],
+            ),
+          );
+        },
       ),
     );
   }
