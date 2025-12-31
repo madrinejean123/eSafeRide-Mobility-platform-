@@ -41,8 +41,7 @@ class _ChatPageState extends State<ChatPage>
   // cause an analyzer error; CI should use record ^6.x where `Record.instance`
   // is available. Suppress the local undefined_getter lint so analysis can
   // pass here while you upgrade dependencies in CI.
-  // ignore: undefined_getter
-  final _recorder = Record.instance;
+  final AudioRecorder _recorder = AudioRecorder();
 
   late AnimationController _sendAnimController;
 
@@ -67,6 +66,7 @@ class _ChatPageState extends State<ChatPage>
     _ctrl.dispose();
     _scroll.dispose();
     _sendAnimController.dispose();
+    _recorder.dispose();
     super.dispose();
   }
 
@@ -139,11 +139,11 @@ class _ChatPageState extends State<ChatPage>
         final id = const Uuid().v4();
         final dir = await getTemporaryDirectory();
         final path = '${dir.path}/voice_$id.m4a';
-        await _recorder.start(path: path);
+        await _recorder.start(const RecordConfig(), path: path);
         setState(() => _isRecording = true);
         return;
       } else {
-        final path = await _recorder.stop();
+        final String? path = await _recorder.stop();
         setState(() => _isRecording = false);
         if (path == null) return;
         // upload to storage
