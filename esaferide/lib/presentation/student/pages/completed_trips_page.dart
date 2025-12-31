@@ -1,8 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
-import 'package:esaferide/firebase_options.dart';
-import 'package:url_launcher/url_launcher_string.dart';
+import 'package:esaferide/presentation/shared/completed_item_helpers.dart';
 
 class CompletedRidesPage extends StatelessWidget {
   const CompletedRidesPage({super.key});
@@ -72,40 +71,25 @@ class CompletedRidesPage extends StatelessWidget {
                         ).format(context)
                       : '';
 
-                  return Card(
-                    elevation: 2,
-                    child: ListTile(
-                      leading: CircleAvatar(
-                        child: Text(
-                          driverName.isNotEmpty ? driverName[0] : '?',
-                        ),
-                      ),
-                      title: Text(
-                        'From: ${pickup?.latitude.toStringAsFixed(3)}, ${pickup?.longitude.toStringAsFixed(3)}\nTo: ${destination?.latitude.toStringAsFixed(3)}, ${destination?.longitude.toStringAsFixed(3)}',
-                      ),
-                      subtitle: Text('Duration: ${duration}s • Fare: \$$fare'),
-                      trailing: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text(
-                            timeStr,
-                            style: const TextStyle(fontSize: 12),
-                          ),
-                          IconButton(
-                            tooltip: 'Open in Firebase',
-                            onPressed: () async {
-                              final projectId =
-                                  DefaultFirebaseOptions.currentPlatform.projectId;
-                              final path = '~2Frides~2F${rides[index].id}';
-                              final url =
-                                  'https://console.firebase.google.com/project/$projectId/firestore/data/$path';
-                              await launchUrlString(url);
-                            },
-                            icon: const Icon(Icons.open_in_new),
-                          ),
-                        ],
-                      ),
-                    ),
+                  final pickupLabelStr =
+                      (ride['pickupLabel'] as String?) ??
+                      (pickup != null
+                          ? '${pickup.latitude.toStringAsFixed(3)}, ${pickup.longitude.toStringAsFixed(3)}'
+                          : null);
+                  final destLabelStr =
+                      (ride['destinationLabel'] as String?) ??
+                      (destination != null
+                          ? '${destination.latitude.toStringAsFixed(3)}, ${destination.longitude.toStringAsFixed(3)}'
+                          : null);
+
+                  return CompletedRideTile(
+                    avatarText: driverName,
+                    title: driverName,
+                    pickupLabel: pickupLabelStr,
+                    destinationLabel: destLabelStr,
+                    fareLabel:
+                        '${formatCurrency(fare)}${duration != 0 ? ' • ${duration}s' : ''}',
+                    timeLabel: timeStr,
                   );
                 },
               );

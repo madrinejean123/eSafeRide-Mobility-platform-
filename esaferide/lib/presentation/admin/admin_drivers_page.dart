@@ -358,7 +358,11 @@ class _AdminDriversListState extends State<AdminDriversList> {
                               ? const Icon(Icons.person)
                               : null,
                         ),
-                        title: Text(data['fullName'] ?? 'Unnamed'),
+                        title: Text(
+                          data['fullName'] ?? 'Unnamed',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
                         subtitle: Text(data['phone'] ?? ''),
                         trailing: Row(
                           mainAxisSize: MainAxisSize.min,

@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:esaferide/presentation/shared/completed_item_helpers.dart';
 
 class CompletedJobsPage extends StatefulWidget {
   const CompletedJobsPage({super.key});
@@ -81,7 +82,7 @@ class _CompletedJobsPageState extends State<CompletedJobsPage> {
                 final d = docs[index];
                 final data = d.data() as Map<String, dynamic>;
                 final studentId = data['studentId'] as String? ?? '';
-                final fare = data['fare']?.toString() ?? '';
+                final fareRaw = data['fare'];
                 final duration = (data['durationSeconds'] as int?) ?? 0;
                 final created = data['createdAt'] as Timestamp?;
 
@@ -104,7 +105,9 @@ class _CompletedJobsPageState extends State<CompletedJobsPage> {
                     ),
                   ),
                   title: Text(studentName),
-                  subtitle: Text('Duration: ${duration}s • Fare: \$$fare'),
+                  subtitle: Text(
+                    'Duration: ${duration}s • Fare: ${formatCurrency(fareRaw)}',
+                  ),
                   trailing: Text(timeStr, style: const TextStyle(fontSize: 12)),
                 );
               } catch (e, st) {

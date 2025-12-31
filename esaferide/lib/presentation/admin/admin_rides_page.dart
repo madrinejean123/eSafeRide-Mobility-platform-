@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:esaferide/presentation/shared/app_scaffold.dart';
 import 'package:esaferide/presentation/shared/styles.dart';
+import 'package:esaferide/presentation/shared/completed_item_helpers.dart';
 import 'package:esaferide/presentation/admin/admin_gate.dart';
 
 class AdminRidesPage extends StatelessWidget {
@@ -108,6 +109,7 @@ class _AdminRidesPageBodyState extends State<AdminRidesPageBody> {
                   final destination = data['destination'] as GeoPoint?;
                   final status = data['status'] as String? ?? 'pending';
                   final createdAt = data['createdAt'] as Timestamp?;
+                  final fare = data['fare'];
 
                   return _RideCard(
                     rideId: doc.id,
@@ -116,6 +118,7 @@ class _AdminRidesPageBodyState extends State<AdminRidesPageBody> {
                     destination: destination,
                     status: status,
                     createdAt: createdAt,
+                    fare: fare,
                   );
                 } catch (e, st) {
                   debugPrint('AdminRidesPage itemBuilder error: $e\n$st');
@@ -143,6 +146,7 @@ class _RideCard extends StatelessWidget {
   final GeoPoint? destination;
   final String status;
   final Timestamp? createdAt;
+  final dynamic fare;
 
   const _RideCard({
     required this.rideId,
@@ -151,6 +155,7 @@ class _RideCard extends StatelessWidget {
     this.destination,
     required this.status,
     this.createdAt,
+    this.fare,
   });
 
   @override
@@ -165,89 +170,85 @@ class _RideCard extends StatelessWidget {
         ? TimeOfDay.fromDateTime(createdAt!.toDate()).format(context)
         : '';
 
+    final fareLabel = formatCurrency(fare);
+
     return Card(
       elevation: 2,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Row(
+      child: ListTile(
+        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('Ride $rideId', style: sectionTitleStyle()),
-                  const SizedBox(height: 6),
-                  Text(
-                    'Student: $studentName',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  if (pickup != null)
-                    Text(
-                      'Pickup: ${formatGeo(pickup)}',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  if (destination != null)
-                    Text(
-                      'Dest: ${formatGeo(destination)}',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                ],
+            Text('Ride $rideId', style: sectionTitleStyle()),
+            const SizedBox(height: 6),
+            Text(
+              'Student: $studentName',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+            if (pickup != null)
+              Text(
+                'Pickup: ${formatGeo(pickup)}',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            if (destination != null)
+              Text(
+                'Dest: ${formatGeo(destination)}',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+          ],
+        ),
+        trailing: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            Text(fareLabel, style: sectionTitleStyle()),
+            const SizedBox(height: 6),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(
+                color: statusColor.withAlpha(50),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Text(
+                status.toUpperCase(),
+                style: TextStyle(
+                  color: statusColor,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
             ),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 6,
-                  ),
-                  decoration: BoxDecoration(
-                    color: statusColor.withAlpha(50),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Text(
-                    status.toUpperCase(),
-                    style: TextStyle(
-                      color: statusColor,
-                      fontWeight: FontWeight.bold,
+            const SizedBox(height: 8),
+            TextButton(
+              onPressed: () {
+                showDialog(
+                  context: context,
+                  builder: (ctx) => AlertDialog(
+                    title: Text('Ride $rideId'),
+                    content: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('Student: $studentName'),
+                        const SizedBox(height: 8),
+                        Text('Status: $status'),
+                        const SizedBox(height: 8),
+                        Text('Created: $createdStr'),
+                      ],
                     ),
-                  ),
-                ),
-                const SizedBox(height: 8),
-                TextButton(
-                  onPressed: () {
-                    showDialog(
-                      context: context,
-                      builder: (ctx) => AlertDialog(
-                        title: Text('Ride $rideId'),
-                        content: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text('Student: $studentName'),
-                            const SizedBox(height: 8),
-                            Text('Status: $status'),
-                            const SizedBox(height: 8),
-                            Text('Created: $createdStr'),
-                          ],
-                        ),
-                        actions: [
-                          TextButton(
-                            onPressed: () => Navigator.of(ctx).pop(),
-                            child: const Text('Close'),
-                          ),
-                        ],
+                    actions: [
+                      TextButton(
+                        onPressed: () => Navigator.of(ctx).pop(),
+                        child: const Text('Close'),
                       ),
-                    );
-                  },
-                  child: const Text('View'),
-                ),
-              ],
+                    ],
+                  ),
+                );
+              },
+              child: const Text('View'),
             ),
           ],
         ),
